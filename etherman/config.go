@@ -7,8 +7,9 @@ import (
 
 // Config represents the configuration of the etherman
 type Config struct {
-	URL       string `mapstructure:"URL"`
-	L1ChainID uint64 `mapstructure:"L1ChainID"`
+	URL         string `mapstructure:"URL"`
+	L1ChainID   uint64 `mapstructure:"L1ChainID"`
+	L1ChainType string `mapstructure:"L1ChainType"`
 
 	PoEAddr                   common.Address `mapstructure:"PoEAddr"`
 	MaticAddr                 common.Address `mapstructure:"MaticAddr"`

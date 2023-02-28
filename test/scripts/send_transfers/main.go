@@ -20,10 +20,11 @@ func main() {
 		Name       string
 		URL        string
 		ChainID    uint64
+		ChainType  string
 		PrivateKey string
 	}{
-		//{Name: "Local L1", URL: operations.DefaultL1NetworkURL, ChainID: operations.DefaultL1ChainID, PrivateKey: operations.DefaultSequencerPrivateKey},
-		{Name: "Local L2", URL: operations.DefaultL2NetworkURL, ChainID: operations.DefaultL2ChainID, PrivateKey: operations.DefaultSequencerPrivateKey},
+		//{Name: "Local L1", URL: operations.DefaultL1NetworkURL, ChainID: operations.DefaultL1ChainID, ChainType: operations.DefaultL1ChainType, PrivateKey: operations.DefaultSequencerPrivateKey},
+		{Name: "Local L2", URL: operations.DefaultL2NetworkURL, ChainID: operations.DefaultL2ChainID, ChainType: operations.DefaultL2ChainType, PrivateKey: operations.DefaultSequencerPrivateKey},
 	}
 
 	for _, network := range networks {

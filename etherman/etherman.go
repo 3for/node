@@ -23,6 +23,7 @@ import (
 	"github.com/0xPolygonHermez/zkevm-node/log"
 	"github.com/0xPolygonHermez/zkevm-node/state"
 	"github.com/0xPolygonHermez/zkevm-node/test/operations"
+	"github.com/0xPolygonHermez/zkevm-node/tron"
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
@@ -109,6 +110,7 @@ type externalGasProviders struct {
 // Client is a simple implementation of EtherMan.
 type Client struct {
 	EthClient             ethereumClient
+	TronChainRPC          *tron.Client
 	PoE                   *polygonzkevm.Polygonzkevm
 	GlobalExitRootManager *polygonzkevmglobalexitroot.Polygonzkevmglobalexitroot
 	Matic                 *matic.Matic

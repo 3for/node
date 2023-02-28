@@ -41,13 +41,28 @@ const (
 	DefaultSequencerBalance     = 400000
 	DefaultMaxCumulativeGasUsed = 800000
 
+	/*// Ethereum as L1
 	DefaultL1NetworkURL                 = "http://localhost:8545"
 	DefaultL1NetworkWebSocketURL        = "ws://localhost:8546"
 	DefaultL1ChainID             uint64 = 1337
+	DefaultL1ChainType                  = "Eth"*/
+
+	// BTTC as L1
+	DefaultL1NetworkURL                 = "https://pre-rpc.bt.io/"
+	DefaultL1NetworkWebSocketURL        = "ws://localhost:8546"
+	DefaultL1ChainID             uint64 = 1029
+	DefaultL1ChainType                  = "Eth"
+
+	/*// Tron as L1
+	DefaultL1NetworkURL                 = "https://api.shasta.trongrid.io"
+	DefaultL1NetworkWebSocketURL        = "ws://localhost:8546"
+	DefaultL1ChainID             uint64 = 2494104990
+	DefaultL1ChainType                  = "Tron"*/
 
 	DefaultL2NetworkURL                 = "http://localhost:8123"
 	DefaultL2NetworkWebSocketURL        = "ws://localhost:8133"
 	DefaultL2ChainID             uint64 = 1001
+	DefaultL2ChainType                  = "Eth"
 
 	DefaultTimeoutTxToBeMined = 1 * time.Minute
 )

@@ -33,6 +33,7 @@ FreeClaimGasLimit = 150000
 [Etherman]
 URL = "http://localhost:8545"
 L1ChainID = 1337
+L1ChainType = "Eth"
 PoEAddr = "0x8A791620dd6260079BF849Dc5567aDC3F2FdC318"
 MaticAddr = "0x5FbDB2315678afecb367f032d93F642f64180aa3"
 GlobalExitRootManagerAddr = "0xa513E6E4b8f2a923D98304ec87F64353C4D5C853"

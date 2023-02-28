@@ -1,7 +1,7 @@
 include version.mk
 
 ARCH := $(shell arch)
-
+ARCH = amd64 ## Set default to be compilable in MAC OS. ZYD
 ifeq ($(ARCH),x86_64)
 	ARCH = amd64
 else 

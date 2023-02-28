@@ -26,6 +26,7 @@ FreeClaimGasLimit = 1500000
 [Etherman]
 URL = "http://your.L1node.url"
 L1ChainID = 5
+L1ChainType = "Eth"
 PoEAddr = "0x5e2e663A39205348cE985Bccc9673Ca25AeE727E"
 MaticAddr = "0x957601b24ce513E64C7D77c9EB169501B7CC4D71"
 GlobalExitRootManagerAddr = "0x715fC3A1422de7Ae2EA483d1DA8415E8dD45bAd3"

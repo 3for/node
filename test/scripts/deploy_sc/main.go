@@ -14,6 +14,7 @@ import (
 	"github.com/0xPolygonHermez/zkevm-node/test/contracts/bin/EmitLog"
 	"github.com/0xPolygonHermez/zkevm-node/test/contracts/bin/Storage"
 	"github.com/0xPolygonHermez/zkevm-node/test/operations"
+	"github.com/0xPolygonHermez/zkevm-node/tron"
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
@@ -30,117 +31,137 @@ func main() {
 		Name       string
 		URL        string
 		ChainID    uint64
+		ChainType  string
 		PrivateKey string
 	}{
-		{Name: "Local L1", URL: operations.DefaultL1NetworkURL, ChainID: operations.DefaultL1ChainID, PrivateKey: operations.DefaultSequencerPrivateKey},
-		{Name: "Local L2", URL: operations.DefaultL2NetworkURL, ChainID: operations.DefaultL2ChainID, PrivateKey: operations.DefaultSequencerPrivateKey},
+		{Name: "Local L1", URL: operations.DefaultL1NetworkURL, ChainID: operations.DefaultL1ChainID, ChainType: operations.DefaultL1ChainType, PrivateKey: operations.DefaultSequencerPrivateKey},
+		//		{Name: "Local L2", URL: operations.DefaultL2NetworkURL, ChainID: operations.DefaultL2ChainID, ChainType: operations.DefaultL2ChainType, PrivateKey: operations.DefaultSequencerPrivateKey},
 	}
 
 	for _, network := range networks {
 		ctx := context.Background()
 
-		log.Infof("connecting to %v: %v", network.Name, network.URL)
-		client, err := ethclient.Dial(network.URL)
-		chkErr(err)
-		log.Infof("connected")
+		log.Infof("connecting to %v: %v, chaintype: %v", network.Name, network.URL, network.ChainType)
 
-		auth := operations.MustGetAuth(network.PrivateKey, network.ChainID)
-		chkErr(err)
+		switch network.ChainType {
+		case "Eth":
+			client, err := ethclient.Dial(network.URL)
+			chkErr(err)
+			log.Infof("connected")
 
-		const receiverAddr = "0x617b3a3528F9cDd6630fd3301B9c8911F7Bf063D"
+			auth := operations.MustGetAuth(network.PrivateKey, network.ChainID)
+			chkErr(err)
 
-		balance, err := client.BalanceAt(ctx, auth.From, nil)
-		chkErr(err)
-		log.Debugf("ETH Balance for %v: %v", auth.From, balance)
+			const receiverAddr = "0x617b3a3528F9cDd6630fd3301B9c8911F7Bf063D"
 
-		// Counter
-		log.Debugf("Sending TX to deploy Counter SC")
-		_, tx, counterSC, err := Counter.DeployCounter(auth, client)
-		chkErr(err)
-		err = operations.WaitTxToBeMined(ctx, client, tx, txTimeout)
-		chkErr(err)
-		log.Debugf("Calling Increment method from Counter SC")
-		tx, err = counterSC.Increment(auth)
-		chkErr(err)
-		err = operations.WaitTxToBeMined(ctx, client, tx, txTimeout)
-		chkErr(err)
-		fmt.Println()
+			balance, err := client.BalanceAt(ctx, auth.From, nil)
+			chkErr(err)
+			log.Debugf("ETH Balance for %v: %v", auth.From, balance)
 
-		// EmitLog
-		log.Debugf("Sending TX to deploy EmitLog SC")
-		_, tx, emitLogSC, err := EmitLog.DeployEmitLog(auth, client)
-		chkErr(err)
-		err = operations.WaitTxToBeMined(ctx, client, tx, txTimeout)
-		chkErr(err)
-		log.Debugf("Calling EmitLogs method from EmitLog SC")
-		tx, err = emitLogSC.EmitLogs(auth)
-		chkErr(err)
-		err = operations.WaitTxToBeMined(ctx, client, tx, txTimeout)
-		chkErr(err)
-		fmt.Println()
+			// Counter
+			log.Debugf("Sending TX to deploy Counter SC")
+			_, tx, counterSC, err := Counter.DeployCounter(auth, client)
+			chkErr(err)
+			err = operations.WaitTxToBeMined(ctx, client, tx, txTimeout)
+			chkErr(err)
+			log.Debugf("Calling Increment method from Counter SC")
+			tx, err = counterSC.Increment(auth)
+			chkErr(err)
+			err = operations.WaitTxToBeMined(ctx, client, tx, txTimeout)
+			chkErr(err)
+			fmt.Println()
 
-		// ERC20
-		mintAmount, _ := big.NewInt(0).SetString("1000000000000000000000", encoding.Base10)
-		log.Debugf("Sending TX to deploy ERC20 SC")
-		_, tx, erc20SC, err := ERC20.DeployERC20(auth, client, "Test Coin", "TCO")
-		chkErr(err)
-		err = operations.WaitTxToBeMined(ctx, client, tx, txTimeout)
-		chkErr(err)
-		log.Debugf("Sending TX to do a ERC20 mint")
-		tx, err = erc20SC.Mint(auth, mintAmount)
-		chkErr(err)
-		err = operations.WaitTxToBeMined(ctx, client, tx, txTimeout)
-		chkErr(err)
-		transferAmount, _ := big.NewInt(0).SetString("900000000000000000000", encoding.Base10)
-		log.Debugf("Sending TX to do a ERC20 transfer")
-		tx, err = erc20SC.Transfer(auth, common.HexToAddress(receiverAddr), transferAmount)
-		chkErr(err)
-		auth.Nonce = big.NewInt(0).SetUint64(tx.Nonce() + 1)
-		log.Debugf("Sending invalid TX to do a ERC20 transfer")
-		invalidTx, err := erc20SC.Transfer(auth, common.HexToAddress(receiverAddr), transferAmount)
-		chkErr(err)
-		log.Debugf("Invalid ERC20 tx hash: %v", invalidTx.Hash())
-		err = operations.WaitTxToBeMined(ctx, client, tx, txTimeout)
-		chkErr(err)
-		operations.WaitTxToBeMined(ctx, client, invalidTx, txTimeout) //nolint:errcheck
-		chkErr(err)
-		auth.Nonce = nil
-		fmt.Println()
+			// EmitLog
+			log.Debugf("Sending TX to deploy EmitLog SC")
+			_, tx, emitLogSC, err := EmitLog.DeployEmitLog(auth, client)
+			chkErr(err)
+			err = operations.WaitTxToBeMined(ctx, client, tx, txTimeout)
+			chkErr(err)
+			log.Debugf("Calling EmitLogs method from EmitLog SC")
+			tx, err = emitLogSC.EmitLogs(auth)
+			chkErr(err)
+			err = operations.WaitTxToBeMined(ctx, client, tx, txTimeout)
+			chkErr(err)
+			fmt.Println()
 
-		// Storage
-		const numberToStore = 22
-		log.Debugf("Sending TX to deploy Storage SC")
-		_, tx, storageSC, err := Storage.DeployStorage(auth, client)
-		chkErr(err)
-		err = operations.WaitTxToBeMined(ctx, client, tx, txTimeout)
-		chkErr(err)
-		log.Debugf("Calling Store method from Storage SC")
-		tx, err = storageSC.Store(auth, big.NewInt(numberToStore))
-		chkErr(err)
-		err = operations.WaitTxToBeMined(ctx, client, tx, txTimeout)
-		chkErr(err)
-		fmt.Println()
+			// ERC20
+			mintAmount, _ := big.NewInt(0).SetString("1000000000000000000000", encoding.Base10)
+			log.Debugf("Sending TX to deploy ERC20 SC")
+			_, tx, erc20SC, err := ERC20.DeployERC20(auth, client, "Test Coin", "TCO")
+			chkErr(err)
+			err = operations.WaitTxToBeMined(ctx, client, tx, txTimeout)
+			chkErr(err)
+			log.Debugf("Sending TX to do a ERC20 mint")
+			tx, err = erc20SC.Mint(auth, mintAmount)
+			chkErr(err)
+			err = operations.WaitTxToBeMined(ctx, client, tx, txTimeout)
+			chkErr(err)
+			transferAmount, _ := big.NewInt(0).SetString("900000000000000000000", encoding.Base10)
+			log.Debugf("Sending TX to do a ERC20 transfer")
+			tx, err = erc20SC.Transfer(auth, common.HexToAddress(receiverAddr), transferAmount)
+			chkErr(err)
+			auth.Nonce = big.NewInt(0).SetUint64(tx.Nonce() + 1)
+			log.Debugf("Sending invalid TX to do a ERC20 transfer")
+			invalidTx, err := erc20SC.Transfer(auth, common.HexToAddress(receiverAddr), transferAmount)
+			chkErr(err)
+			log.Debugf("Invalid ERC20 tx hash: %v", invalidTx.Hash())
+			err = operations.WaitTxToBeMined(ctx, client, tx, txTimeout)
+			chkErr(err)
+			operations.WaitTxToBeMined(ctx, client, invalidTx, txTimeout) //nolint:errcheck
+			chkErr(err)
+			auth.Nonce = nil
+			fmt.Println()
 
-		// Valid ETH Transfer
-		balance, err = client.BalanceAt(ctx, auth.From, nil)
-		log.Debugf("ETH Balance for %v: %v", auth.From, balance)
-		chkErr(err)
-		const halfDivision = 2
-		transferAmount = balance.Quo(balance, big.NewInt(halfDivision))
-		log.Debugf("Transfer Amount: %v", transferAmount)
+			// Storage
+			const numberToStore = 22
+			log.Debugf("Sending TX to deploy Storage SC")
+			_, tx, storageSC, err := Storage.DeployStorage(auth, client)
+			chkErr(err)
+			err = operations.WaitTxToBeMined(ctx, client, tx, txTimeout)
+			chkErr(err)
+			log.Debugf("Calling Store method from Storage SC")
+			tx, err = storageSC.Store(auth, big.NewInt(numberToStore))
+			chkErr(err)
+			err = operations.WaitTxToBeMined(ctx, client, tx, txTimeout)
+			chkErr(err)
+			fmt.Println()
 
-		log.Debugf("Sending TX to transfer ETH")
-		to := common.HexToAddress(receiverAddr)
-		tx = ethTransfer(ctx, client, auth, to, transferAmount, nil)
-		fmt.Println()
+			// Valid ETH Transfer
+			balance, err = client.BalanceAt(ctx, auth.From, nil)
+			log.Debugf("ETH Balance for %v: %v", auth.From, balance)
+			chkErr(err)
+			const halfDivision = 2
+			transferAmount = balance.Quo(balance, big.NewInt(halfDivision))
+			log.Debugf("Transfer Amount: %v", transferAmount)
 
-		// Invalid ETH Transfer
-		log.Debugf("Sending Invalid TX to transfer ETH")
-		nonce := tx.Nonce() + 1
-		ethTransfer(ctx, client, auth, to, transferAmount, &nonce)
-		err = operations.WaitTxToBeMined(ctx, client, tx, txTimeout)
-		chkErr(err)
-		fmt.Println()
+			log.Debugf("Sending TX to transfer ETH")
+			to := common.HexToAddress(receiverAddr)
+			tx = ethTransfer(ctx, client, auth, to, transferAmount, nil)
+			fmt.Println()
+
+			// Invalid ETH Transfer
+			log.Debugf("Sending Invalid TX to transfer ETH")
+			nonce := tx.Nonce() + 1
+			ethTransfer(ctx, client, auth, to, transferAmount, &nonce)
+			err = operations.WaitTxToBeMined(ctx, client, tx, txTimeout)
+			chkErr(err)
+			fmt.Println()
+		case "Tron":
+			tron.NewClient(network.URL)
+			/*_client := tronRPCClient
+			s := strings.ReplaceAll(network.PrivateKey, "0x", "")
+			ds, err := hex.DecodeString(s)
+			chkErr(err)
+
+			// set private object
+			var privObject secp256k1.PrivKeySecp256k1
+			copy(privObject[:], ds)*/
+
+		default:
+			fmt.Println("ChainType value should be in [Eth,Tron]")
+			return
+		}
+
 	}
 }
 
