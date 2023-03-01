@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math/big"
+	"strings"
 	"time"
 
 	"github.com/0xPolygonHermez/zkevm-node/encoding"
@@ -16,9 +17,11 @@ import (
 	"github.com/0xPolygonHermez/zkevm-node/test/operations"
 	"github.com/0xPolygonHermez/zkevm-node/tron"
 	"github.com/ethereum/go-ethereum"
+	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
 )
 
@@ -147,15 +150,26 @@ func main() {
 			chkErr(err)
 			fmt.Println()
 		case "Tron":
-			tron.NewClient(network.URL)
-			/*_client := tronRPCClient
-			s := strings.ReplaceAll(network.PrivateKey, "0x", "")
-			ds, err := hex.DecodeString(s)
-			chkErr(err)
+			tronRPCClient := tron.NewClient(network.URL)
+			client := tronRPCClient
 
 			// set private object
-			var privObject secp256k1.PrivKeySecp256k1
-			copy(privObject[:], ds)*/
+			privateKey, err := crypto.HexToECDSA(strings.TrimPrefix(network.PrivateKey, "0x"))
+			chkErr(err)
+			fromAddr := crypto.PubkeyToAddress(privateKey.PublicKey).String() // Has prefix "0x"
+			log.Infof("privObject:%v", fromAddr)
+			//client.GetBalance("E552F6487585C2B58BC2C9BB4492BC1F17132CD0")
+			balance, err := client.GetBalance(fromAddr)
+			chkErr(err)
+			log.Debugf("TRX Balance for %v: %v", fromAddr, balance)
+
+			contractAddr := "0x3B4648518419DA1D92ED12505193FFF13E3FD492" //TFNd4gzLoxqKuKCdqUFKc883i1VwH19yj4
+			counterABI := "[{\"inputs\":[],\"name\":\"count\",\"outputs\":[{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"getCount\",\"outputs\":[{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"increment\",\"outputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"function\"}]"
+			parsed, err := abi.JSON(strings.NewReader(counterABI))
+			chkErr(err)
+			data, err := parsed.Pack("getCount")
+			chkErr(err)
+			client.TriggerConstantContract(contractAddr, data)
 
 		default:
 			fmt.Println("ChainType value should be in [Eth,Tron]")

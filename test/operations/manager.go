@@ -54,7 +54,8 @@ const (
 	DefaultL1ChainType                  = "Eth"*/
 
 	// Tron as L1
-	DefaultL1NetworkURL                 = "https://api.shasta.trongrid.io"
+	//DefaultL1NetworkURL                 = "https://api.shasta.trongrid.io"
+	DefaultL1NetworkURL                 = "grpc.shasta.trongrid.io:50051"
 	DefaultL1NetworkWebSocketURL        = "ws://localhost:8546"
 	DefaultL1ChainID             uint64 = 2494104990
 	DefaultL1ChainType                  = "Tron"
