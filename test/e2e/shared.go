@@ -14,6 +14,7 @@ var networks = []struct {
 	WebSocketURL string
 	ChainID      uint64
 	ChainType    string
+	EventURL     string
 	PrivateKey   string
 }{
 	{
@@ -22,6 +23,7 @@ var networks = []struct {
 		WebSocketURL: operations.DefaultL1NetworkWebSocketURL,
 		ChainID:      operations.DefaultL1ChainID,
 		ChainType:    operations.DefaultL1ChainType,
+		EventURL:       operations.DefaultL1EventURL,
 		PrivateKey:   operations.DefaultSequencerPrivateKey,
 	},
 	{
@@ -30,6 +32,7 @@ var networks = []struct {
 		WebSocketURL: operations.DefaultL2NetworkWebSocketURL,
 		ChainID:      operations.DefaultL2ChainID,
 		ChainType:    operations.DefaultL2ChainType,
+		EventURL:	  operations.DefaultL2EventURL,
 		PrivateKey:   operations.DefaultSequencerPrivateKey,
 	},
 }

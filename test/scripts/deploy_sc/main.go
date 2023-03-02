@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"crypto/ecdsa"
+	"crypto/sha256"
 	"fmt"
 	"math/big"
 	"strings"
@@ -23,6 +25,7 @@ import (
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
+	"google.golang.org/protobuf/proto"
 )
 
 const (
@@ -35,10 +38,11 @@ func main() {
 		URL        string
 		ChainID    uint64
 		ChainType  string
+		EventURL   string
 		PrivateKey string
 	}{
-		{Name: "Local L1", URL: operations.DefaultL1NetworkURL, ChainID: operations.DefaultL1ChainID, ChainType: operations.DefaultL1ChainType, PrivateKey: operations.DefaultSequencerPrivateKey},
-		//		{Name: "Local L2", URL: operations.DefaultL2NetworkURL, ChainID: operations.DefaultL2ChainID, ChainType: operations.DefaultL2ChainType, PrivateKey: operations.DefaultSequencerPrivateKey},
+		{Name: "Local L1", URL: operations.DefaultL1NetworkURL, ChainID: operations.DefaultL1ChainID, ChainType: operations.DefaultL1ChainType, EventURL: operations.DefaultL1EventURL, PrivateKey: operations.DefaultSequencerPrivateKey},
+		//		{Name: "Local L2", URL: operations.DefaultL2NetworkURL, ChainID: operations.DefaultL2ChainID, ChainType: operations.DefaultL2ChainType, EventURL: operations.DefaultL2EventURL, PrivateKey: operations.DefaultSequencerPrivateKey},
 	}
 
 	for _, network := range networks {
@@ -171,12 +175,62 @@ func main() {
 			chkErr(err)
 			client.TriggerConstantContract(contractAddr, data)
 
+			feeLimit := uint64(200000000)
+
+			data, err = parsed.Pack("increment")
+			chkErr(err)
+			err = sendTriggerContract(client, privateKey, fromAddr, contractAddr, data, feeLimit)
+			chkErr(err)
+
+			data, err = parsed.Pack("getCount")
+			chkErr(err)
+			client.TriggerConstantContract(contractAddr, data)
+
 		default:
 			fmt.Println("ChainType value should be in [Eth,Tron]")
 			return
 		}
 
 	}
+}
+
+// Package goLang sha256 hash algorithm.
+func Hash(s []byte) ([]byte, error) {
+	h := sha256.New()
+	_, err := h.Write(s)
+	if err != nil {
+		return nil, err
+	}
+	bs := h.Sum(nil)
+	return bs, nil
+}
+
+func sendTriggerContract(client *tron.Client, ownerPriKey *ecdsa.PrivateKey, ownerAddress, contractAddress string, data []byte, feeLimmit uint64) error {
+	trx, err := client.TriggerContract(ownerAddress, contractAddress, data)
+
+	if err != nil {
+		return err
+	}
+	trx.RawData.FeeLimit = int64(feeLimmit)
+	rawData, _ := proto.Marshal(trx.GetRawData())
+	hash, err := Hash(rawData)
+	if err != nil {
+		return err
+	}
+
+	signature, err := crypto.Sign(hash, ownerPriKey)
+	if err != nil {
+		return err
+	}
+
+	trx.Signature = append(trx.GetSignature(), signature)
+
+	err = client.BroadcastTransaction(context.Background(), trx)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func ethTransfer(ctx context.Context, client *ethclient.Client, auth *bind.TransactOpts, to common.Address, amount *big.Int, nonce *uint64) *types.Transaction {

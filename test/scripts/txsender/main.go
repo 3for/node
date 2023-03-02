@@ -38,11 +38,12 @@ var networks = map[string]struct {
 	URL        string
 	ChainID    uint64
 	ChainType  string
+	EventURL   string
 	PrivateKey string
 	networkLayer
 }{
-	flagNetworkLocalL1Key: {Name: "Local L1", URL: operations.DefaultL1NetworkURL, ChainID: operations.DefaultL1ChainID, ChainType: operations.DefaultL1ChainType, PrivateKey: operations.DefaultSequencerPrivateKey, networkLayer: networkLayer1},
-	flagNetworkLocalL2Key: {Name: "Local L2", URL: operations.DefaultL2NetworkURL, ChainID: operations.DefaultL2ChainID, ChainType: operations.DefaultL2ChainType, PrivateKey: operations.DefaultSequencerPrivateKey, networkLayer: networkLayer2},
+	flagNetworkLocalL1Key: {Name: "Local L1", URL: operations.DefaultL1NetworkURL, ChainID: operations.DefaultL1ChainID, ChainType: operations.DefaultL1ChainType, EventURL: operations.DefaultL1EventURL, PrivateKey: operations.DefaultSequencerPrivateKey, networkLayer: networkLayer1},
+	flagNetworkLocalL2Key: {Name: "Local L2", URL: operations.DefaultL2NetworkURL, ChainID: operations.DefaultL2ChainID, ChainType: operations.DefaultL2ChainType, EventURL: operations.DefaultL2EventURL, PrivateKey: operations.DefaultSequencerPrivateKey, networkLayer: networkLayer2},
 }
 
 var (
