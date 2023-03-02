@@ -46,7 +46,8 @@ const (
 	DefaultL1NetworkWebSocketURL        = "ws://localhost:8546"
 	DefaultL1ChainID             uint64 = 1337
 	DefaultL1ChainType                  = "Eth"
-	DefaultL1EventURL			= ""
+	DefaultL1EventURL					= ""
+	DefaultL1EventURLApiKey             = ""
 	*/
 
 	/*// BTTC as L1
@@ -54,7 +55,8 @@ const (
 	DefaultL1NetworkWebSocketURL        = "ws://localhost:8546"
 	DefaultL1ChainID             uint64 = 1029
 	DefaultL1ChainType                  = "Eth"
-	DefaultL1EventURL			= ""
+	DefaultL1EventURL					= ""
+	DefaultL1EventURLApiKey             = ""
 	*/
 
 	// Tron as L1
@@ -63,14 +65,14 @@ const (
 	DefaultL1ChainID             uint64 = 2494104990
 	DefaultL1ChainType                  = "Tron"
 	DefaultL1EventURL                   = "https://api.shasta.trongrid.io" // event server
-
-	DefaultTronGridApiKey = "xxxxxxxx"
+	DefaultL1EventURLApiKey             = "xxxxxxxx"
 
 	DefaultL2NetworkURL                 = "http://localhost:8123"
 	DefaultL2NetworkWebSocketURL        = "ws://localhost:8133"
 	DefaultL2ChainID             uint64 = 1001
 	DefaultL2ChainType                  = "Eth"
 	DefaultL2EventURL                   = ""
+	DefaultL2EventURLApiKey             = ""
 
 	DefaultTimeoutTxToBeMined = 1 * time.Minute
 )

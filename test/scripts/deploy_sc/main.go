@@ -1,11 +1,18 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/ecdsa"
 	"crypto/sha256"
+	"encoding/json"
 	"fmt"
+	"io/ioutil"
 	"math/big"
+	"net/http"
+	"net/url"
+	"path"
+	"strconv"
 	"strings"
 	"time"
 
@@ -34,15 +41,16 @@ const (
 
 func main() {
 	var networks = []struct {
-		Name       string
-		URL        string
-		ChainID    uint64
-		ChainType  string
-		EventURL   string
-		PrivateKey string
+		Name           string
+		URL            string
+		ChainID        uint64
+		ChainType      string
+		EventURL       string
+		EventURLApiKey string
+		PrivateKey     string
 	}{
-		{Name: "Local L1", URL: operations.DefaultL1NetworkURL, ChainID: operations.DefaultL1ChainID, ChainType: operations.DefaultL1ChainType, EventURL: operations.DefaultL1EventURL, PrivateKey: operations.DefaultSequencerPrivateKey},
-		//		{Name: "Local L2", URL: operations.DefaultL2NetworkURL, ChainID: operations.DefaultL2ChainID, ChainType: operations.DefaultL2ChainType, EventURL: operations.DefaultL2EventURL, PrivateKey: operations.DefaultSequencerPrivateKey},
+		{Name: "Local L1", URL: operations.DefaultL1NetworkURL, ChainID: operations.DefaultL1ChainID, ChainType: operations.DefaultL1ChainType, EventURL: operations.DefaultL1EventURL, EventURLApiKey: operations.DefaultL1EventURLApiKey, PrivateKey: operations.DefaultSequencerPrivateKey},
+		//		{Name: "Local L2", URL: operations.DefaultL2NetworkURL, ChainID: operations.DefaultL2ChainID, ChainType: operations.DefaultL2ChainType, EventURL: operations.DefaultL2EventURL, EventURLApiKey: operations.DefaultL2EventURLApiKey, PrivateKey: operations.DefaultSequencerPrivateKey},
 	}
 
 	for _, network := range networks {
@@ -167,24 +175,41 @@ func main() {
 			chkErr(err)
 			log.Debugf("TRX Balance for %v: %v", fromAddr, balance)
 
-			contractAddr := "0x3B4648518419DA1D92ED12505193FFF13E3FD492" //TFNd4gzLoxqKuKCdqUFKc883i1VwH19yj4
+			counterAddr := "0x3B4648518419DA1D92ED12505193FFF13E3FD492" //TFNd4gzLoxqKuKCdqUFKc883i1VwH19yj4
 			counterABI := "[{\"inputs\":[],\"name\":\"count\",\"outputs\":[{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"getCount\",\"outputs\":[{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"increment\",\"outputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"function\"}]"
 			parsed, err := abi.JSON(strings.NewReader(counterABI))
 			chkErr(err)
 			data, err := parsed.Pack("getCount")
 			chkErr(err)
-			client.TriggerConstantContract(contractAddr, data)
+			client.TriggerConstantContract(counterAddr, data)
 
 			feeLimit := uint64(200000000)
 
 			data, err = parsed.Pack("increment")
 			chkErr(err)
-			err = sendTriggerContract(client, privateKey, fromAddr, contractAddr, data, feeLimit)
+			err = sendTriggerContract(client, privateKey, fromAddr, counterAddr, data, feeLimit)
 			chkErr(err)
 
 			data, err = parsed.Pack("getCount")
 			chkErr(err)
-			client.TriggerConstantContract(contractAddr, data)
+			client.TriggerConstantContract(counterAddr, data)
+
+			//EmitLog contract
+			emitLogAddr := "0xA70FF0AF98D0B03F72D65E02BB2A57A01A4DBC9D" //TRCYwdwgPGMYg13tZ3aQK7UvQdb9U9KgyP
+			emitLogABI := "[{\"anonymous\":false,\"inputs\":[],\"name\":\"Log\",\"type\":\"event\"},{\"anonymous\":false,\"inputs\":[{\"indexed\":true,\"internalType\":\"uint256\",\"name\":\"a\",\"type\":\"uint256\"}],\"name\":\"LogA\",\"type\":\"event\"},{\"anonymous\":false,\"inputs\":[{\"indexed\":true,\"internalType\":\"uint256\",\"name\":\"a\",\"type\":\"uint256\"},{\"indexed\":true,\"internalType\":\"uint256\",\"name\":\"b\",\"type\":\"uint256\"}],\"name\":\"LogAB\",\"type\":\"event\"},{\"anonymous\":false,\"inputs\":[{\"indexed\":true,\"internalType\":\"uint256\",\"name\":\"a\",\"type\":\"uint256\"},{\"indexed\":true,\"internalType\":\"uint256\",\"name\":\"b\",\"type\":\"uint256\"},{\"indexed\":true,\"internalType\":\"uint256\",\"name\":\"c\",\"type\":\"uint256\"}],\"name\":\"LogABC\",\"type\":\"event\"},{\"anonymous\":false,\"inputs\":[{\"indexed\":true,\"internalType\":\"uint256\",\"name\":\"a\",\"type\":\"uint256\"},{\"indexed\":true,\"internalType\":\"uint256\",\"name\":\"b\",\"type\":\"uint256\"},{\"indexed\":true,\"internalType\":\"uint256\",\"name\":\"c\",\"type\":\"uint256\"},{\"indexed\":false,\"internalType\":\"uint256\",\"name\":\"d\",\"type\":\"uint256\"}],\"name\":\"LogABCD\",\"type\":\"event\"},{\"inputs\":[],\"name\":\"emitLogs\",\"outputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"function\"}]"
+			parsed, err = abi.JSON(strings.NewReader(emitLogABI))
+			chkErr(err)
+			data, err = parsed.Pack("emitLogs")
+			chkErr(err)
+			err = sendTriggerContract(client, privateKey, fromAddr, emitLogAddr, data, feeLimit)
+			chkErr(err)
+
+			//get event log
+			var tronContractAddresses []string
+			tronContractAddresses = append(tronContractAddresses, emitLogAddr)
+			fromBlock := int64(31816623)
+			toBlock := int64(31816772)
+			GetTronEventsByContractAddress(network.EventURL, network.EventURLApiKey, tronContractAddresses, fromBlock, toBlock)
 
 		default:
 			fmt.Println("ChainType value should be in [Eth,Tron]")
@@ -231,6 +256,67 @@ func sendTriggerContract(client *tron.Client, ownerPriKey *ecdsa.PrivateKey, own
 	}
 
 	return nil
+}
+
+func MakeRequest(req *http.Request, tronGridAPIKey string) ([]byte, error) {
+	client := http.Client{}
+	req.Header.Add("TRON-PRO-API-KEY", tronGridAPIKey)
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	// response
+	if resp.StatusCode == http.StatusOK {
+		body, err := ioutil.ReadAll(resp.Body)
+		if err != nil {
+			return nil, err
+		}
+		return body, err
+	}
+	log.Debug("Error do http request from URL", "status", resp.StatusCode, "URL", req.URL.String())
+	return nil, fmt.Errorf("error while make tron requset  from url: %v, status: %v", req.URL.String(), resp.StatusCode)
+}
+
+// GetTronGridEndpoint returns tron server endpoint
+func GetTronGridEndpoint(endpoint, tronGridURL string) string {
+	u, _ := url.Parse(tronGridURL)
+	u.Path = path.Join(u.Path, endpoint)
+	return u.String()
+}
+
+func GetTronEventsByContractAddress(tronGridURL, tronGridAPIKey string, address []string, from, to int64) ([]types.Log, error) {
+	var decodedAddress []string
+	for _, adr := range address {
+		decodedAddress = append(decodedAddress, adr[2:])
+	}
+	//create filter
+	filter := tron.NewFilter{
+		Address:   decodedAddress,
+		FromBlock: "0x" + strconv.FormatInt(from, 16),
+		ToBlock:   "0x" + strconv.FormatInt(to, 16),
+	}
+	filtersArray := []tron.NewFilter{filter}
+	queryFilter := tron.FilterEventParams{
+		BaseQueryParam: tron.GetDefaultBaseParm(),
+		Method:         tron.GetLogsMethod,
+		Params:         filtersArray,
+	}
+
+	queryByte, err := json.Marshal(queryFilter)
+	req, err := http.NewRequest("POST", GetTronGridEndpoint("/jsonrpc", tronGridURL), bytes.NewBuffer(queryByte))
+	if err != nil {
+		return nil, err
+	}
+	result, err := MakeRequest(req, tronGridAPIKey)
+	if err != nil {
+		return nil, err
+	}
+	var filterChangeResult tron.FilterEventResponse
+	if err := json.Unmarshal(result, &filterChangeResult); err != nil {
+		return nil, err
+	}
+	return filterChangeResult.Result, nil
 }
 
 func ethTransfer(ctx context.Context, client *ethclient.Client, auth *bind.TransactOpts, to common.Address, amount *big.Int, nonce *uint64) *types.Transaction {

@@ -3,6 +3,8 @@ package tron
 import (
 	"math/rand"
 	"strconv"
+
+	"github.com/ethereum/go-ethereum/core/types"
 )
 
 const (
@@ -35,10 +37,12 @@ type BaseQueryParam struct {
 }
 type FilterEventResponse struct {
 	BaseQueryParam
+	Result []types.Log `json:result`
 }
 
 type FilterTxResponse struct {
 	BaseQueryParam
+	Result types.Receipt `json:result`
 }
 
 type FilterTxNumberResponse struct {
