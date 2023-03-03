@@ -1,6 +1,7 @@
 package etherman
 
 import (
+	"bytes"
 	"context"
 	"encoding/hex"
 	"encoding/json"
@@ -9,6 +10,9 @@ import (
 	"io/ioutil"
 	"math"
 	"math/big"
+	"net/http"
+	"net/url"
+	"path"
 	"path/filepath"
 	"strings"
 	"time"
@@ -224,43 +228,142 @@ func (etherMan *Client) VerifyGenBlockNumber(ctx context.Context, genBlockNumber
 
 // GetForks returns fork information
 func (etherMan *Client) GetForks(ctx context.Context) ([]state.ForkIDInterval, error) {
-	// Filter query
-	query := ethereum.FilterQuery{
-		FromBlock: new(big.Int).SetUint64(1),
-		Addresses: etherMan.SCAddresses,
-		Topics:    [][]common.Hash{{updateZkEVMVersionSignatureHash}},
-	}
-	logs, err := etherMan.EthClient.FilterLogs(ctx, query)
-	if err != nil {
-		return []state.ForkIDInterval{}, err
-	}
-	var forks []state.ForkIDInterval
-	for i, l := range logs {
-		zkevmVersion, err := etherMan.PoE.ParseUpdateZkEVMVersion(l)
+	switch etherMan.cfg.L1ChainType {
+	case "Eth":
+		// Filter query
+		query := ethereum.FilterQuery{
+			FromBlock: new(big.Int).SetUint64(1),
+			Addresses: etherMan.SCAddresses,
+			Topics:    [][]common.Hash{{updateZkEVMVersionSignatureHash}},
+		}
+		logs, err := etherMan.EthClient.FilterLogs(ctx, query)
 		if err != nil {
 			return []state.ForkIDInterval{}, err
 		}
-		var fork state.ForkIDInterval
-		if i == 0 {
-			fork = state.ForkIDInterval{
-				FromBatchNumber: zkevmVersion.NumBatch,
-				ToBatchNumber:   math.MaxUint64,
-				ForkId:          zkevmVersion.ForkID,
-				Version:         zkevmVersion.Version,
+		var forks []state.ForkIDInterval
+		for i, l := range logs {
+			zkevmVersion, err := etherMan.PoE.ParseUpdateZkEVMVersion(l)
+			if err != nil {
+				return []state.ForkIDInterval{}, err
 			}
-		} else {
-			forks[len(forks)-1].ToBatchNumber = zkevmVersion.NumBatch - 1
-			fork = state.ForkIDInterval{
-				FromBatchNumber: zkevmVersion.NumBatch,
-				ToBatchNumber:   math.MaxUint64,
-				ForkId:          zkevmVersion.ForkID,
-				Version:         zkevmVersion.Version,
+			var fork state.ForkIDInterval
+			if i == 0 {
+				fork = state.ForkIDInterval{
+					FromBatchNumber: zkevmVersion.NumBatch,
+					ToBatchNumber:   math.MaxUint64,
+					ForkId:          zkevmVersion.ForkID,
+					Version:         zkevmVersion.Version,
+				}
+			} else {
+				forks[len(forks)-1].ToBatchNumber = zkevmVersion.NumBatch - 1
+				fork = state.ForkIDInterval{
+					FromBatchNumber: zkevmVersion.NumBatch,
+					ToBatchNumber:   math.MaxUint64,
+					ForkId:          zkevmVersion.ForkID,
+					Version:         zkevmVersion.Version,
+				}
 			}
+			forks = append(forks, fork)
 		}
-		forks = append(forks, fork)
+		log.Debugf("Forks decoded: %+v", forks)
+		return forks, nil
+	case "Tron":
+		var decodedAddress []string
+		for _, adr := range etherMan.SCAddresses {
+			decodedAddress = append(decodedAddress, adr.String()[2:])
+		}
+		var topics []string
+		topics = append(topics, updateZkEVMVersionSignatureHash.Hex())
+		// Filter query
+		query := tron.NewFilter{
+			FromBlock: "0x1", //TODO, too early?
+			Address:   decodedAddress,
+			Topics:    topics,
+		}
+		logs, err := FilterTronLogs(etherMan.cfg.TronGrid.Url, etherMan.cfg.TronGrid.ApiKey, query)
+		if err != nil {
+			return []state.ForkIDInterval{}, err
+		}
+
+		var forks []state.ForkIDInterval
+		for i, l := range logs {
+			zkevmVersion, err := etherMan.PoE.ParseUpdateZkEVMVersion(l)
+			if err != nil {
+				return []state.ForkIDInterval{}, err
+			}
+			var fork state.ForkIDInterval
+			if i == 0 {
+				fork = state.ForkIDInterval{
+					FromBatchNumber: zkevmVersion.NumBatch,
+					ToBatchNumber:   math.MaxUint64,
+					ForkId:          zkevmVersion.ForkID,
+					Version:         zkevmVersion.Version,
+				}
+			} else {
+				forks[len(forks)-1].ToBatchNumber = zkevmVersion.NumBatch - 1
+				fork = state.ForkIDInterval{
+					FromBatchNumber: zkevmVersion.NumBatch,
+					ToBatchNumber:   math.MaxUint64,
+					ForkId:          zkevmVersion.ForkID,
+					Version:         zkevmVersion.Version,
+				}
+			}
+			forks = append(forks, fork)
+		}
+		log.Debugf("Tron Forks decoded: %+v", forks)
+		return forks, nil
 	}
-	log.Debugf("Forks decoded: %+v", forks)
-	return forks, nil
+	return nil, nil
+}
+func FilterTronLogs(tronGridURL, tronGridAPIKey string, filter tron.NewFilter) ([]types.Log, error) {
+	filtersArray := []tron.NewFilter{filter}
+	queryFilter := tron.FilterEventParams{
+		BaseQueryParam: tron.GetDefaultBaseParm(),
+		Method:         tron.GetLogsMethod,
+		Params:         filtersArray,
+	}
+
+	queryByte, err := json.Marshal(queryFilter)
+	req, err := http.NewRequest("POST", GetTronGridEndpoint("/jsonrpc", tronGridURL), bytes.NewBuffer(queryByte))
+	if err != nil {
+		return nil, err
+	}
+	result, err := MakeRequest(req, tronGridAPIKey)
+	if err != nil {
+		return nil, err
+	}
+	var filterChangeResult tron.FilterEventResponse
+	if err := json.Unmarshal(result, &filterChangeResult); err != nil {
+		return nil, err
+	}
+	return filterChangeResult.Result, nil
+}
+
+func MakeRequest(req *http.Request, tronGridAPIKey string) ([]byte, error) {
+	client := http.Client{}
+	req.Header.Add("TRON-PRO-API-KEY", tronGridAPIKey)
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	// response
+	if resp.StatusCode == http.StatusOK {
+		body, err := ioutil.ReadAll(resp.Body)
+		if err != nil {
+			return nil, err
+		}
+		return body, err
+	}
+	log.Debug("Error do http request from URL", "status", resp.StatusCode, "URL", req.URL.String())
+	return nil, fmt.Errorf("error while make tron requset  from url: %v, status: %v", req.URL.String(), resp.StatusCode)
+}
+
+// GetTronGridEndpoint returns tron server endpoint
+func GetTronGridEndpoint(endpoint, tronGridURL string) string {
+	u, _ := url.Parse(tronGridURL)
+	u.Path = path.Join(u.Path, endpoint)
+	return u.String()
 }
 
 // GetRollupInfoByBlockRange function retrieves the Rollup information that are included in all this ethereum blocks

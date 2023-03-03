@@ -19,6 +19,7 @@ type NewFilter struct {
 	Address   []string `json:"address"`
 	FromBlock string   `json:"fromBlock"`
 	ToBlock   string   `json:"toBlock"`
+	Topics    []string `json:"topics"`
 }
 type FilterEventParams struct {
 	BaseQueryParam

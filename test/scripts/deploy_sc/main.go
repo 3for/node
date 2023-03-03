@@ -291,11 +291,15 @@ func GetTronEventsByContractAddress(tronGridURL, tronGridAPIKey string, address 
 	for _, adr := range address {
 		decodedAddress = append(decodedAddress, adr[2:])
 	}
+	var logAHash = crypto.Keccak256Hash([]byte("LogA(uint256)"))
+	var topics []string
+	topics = append(topics, logAHash.Hex())
 	//create filter
 	filter := tron.NewFilter{
 		Address:   decodedAddress,
 		FromBlock: "0x" + strconv.FormatInt(from, 16),
 		ToBlock:   "0x" + strconv.FormatInt(to, 16),
+		Topics:    topics,
 	}
 	filtersArray := []tron.NewFilter{filter}
 	queryFilter := tron.FilterEventParams{
@@ -305,6 +309,9 @@ func GetTronEventsByContractAddress(tronGridURL, tronGridAPIKey string, address 
 	}
 
 	queryByte, err := json.Marshal(queryFilter)
+	if err != nil {
+		return nil, err
+	}
 	req, err := http.NewRequest("POST", GetTronGridEndpoint("/jsonrpc", tronGridURL), bytes.NewBuffer(queryByte))
 	if err != nil {
 		return nil, err

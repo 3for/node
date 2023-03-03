@@ -1,0 +1,146 @@
+IsTrustedSequencer = true
+DefaultForkID = 1
+
+[Log]
+Environment = "development" # "production" or "development"
+Level = "debug"
+Outputs = ["stderr"]
+
+[StateDB]
+User = "state_user"
+Password = "state_password"
+Name = "state_db"
+Host = "127.0.0.1"
+Port = "5432"
+EnableLog = false
+MaxConns = 200
+
+[Pool]
+FreeClaimGasLimit = 1500000
+	[Pool.DB]
+	User = "pool_user"
+	Password = "pool_password"
+	Name = "pool_db"
+	Host = "zkevm-pool-db"
+	Port = "5432"
+	EnableLog = false
+	MaxConns = 200
+
+[Etherman]
+URL = "https://pre-rpc.bt.io/" # BTTC as L1
+PoEAddr = "0xDF9CC4F353D4F0C0796462F3F0E0CB56E278491D" # TWMZVMw943yitYi22CseUtH9j6wKMbTCPX
+MaticAddr = "0x4D1F6B31FBE2D71AD3DDDE15FD1BC8F90A5A5B17" # TGzzfqmeCw1LWzqn7wVfuVHnQdwWhcDh9b
+GlobalExitRootManagerAddr = "0x8660D56AF188A05636C7A8978AA711252FD808A1" # TNDjYtHrjydcpzvVHXZKzbi49vScrt8y9L
+L1ChainID = 1029 # BTTC chainID
+L1ChainType = "Eth" # Tron or Eth
+MultiGasProvider = false
+	[Etherman.Etherscan]
+		ApiKey = ""
+	[Etherman.TronGrid]
+		Url = "" # Tron Grid, event server
+		ApiKey = "" # Tron Grid API key
+
+[RPC]
+Host = "0.0.0.0"
+Port = 8123
+ReadTimeoutInSec = 60
+WriteTimeoutInSec = 60
+MaxRequestsPerIPAndSecond = 5000
+SequencerNodeURI = ""
+BroadcastURI = "127.0.0.1:61090"
+DefaultSenderAddress = "0x1111111111111111111111111111111111111111"
+	[RPC.WebSockets]
+		Enabled = true
+		Port = 8133
+
+[Synchronizer]
+SyncInterval = "1s"
+SyncChunkSize = 100
+GenBlockNumber = 16992664 # deploymentBlockNumber，sync start block
+
+[Sequencer]
+MaxSequenceSize = "2000000"
+WaitPeriodPoolIsEmpty = "1s"
+WaitPeriodSendSequence = "15s"
+LastBatchVirtualizationTimeMaxWaitPeriod = "10s"
+BlocksAmountForTxsToBeDeleted = 100
+FrequencyToCheckTxsForDelete = "12h"
+MaxTxsPerBatch = 150
+MaxBatchBytesSize = 150000
+MaxCumulativeGasUsed = 30000000
+MaxKeccakHashes = 468
+MaxPoseidonHashes = 279620
+MaxPoseidonPaddings = 149796
+MaxMemAligns = 262144
+MaxArithmetics = 262144
+MaxBinaries = 262144
+MaxSteps = 8388608
+WeightBatchBytesSize = 1
+WeightCumulativeGasUsed = 1
+WeightKeccakHashes = 1
+WeightPoseidonHashes = 1
+WeightPoseidonPaddings = 1
+WeightMemAligns = 1
+WeightArithmetics = 1
+WeightBinaries = 1
+WeightSteps = 1
+MaxAllowedFailedCounter = 50
+	[Sequencer.Finalizer]
+		GERDeadlineTimeoutInSec = "2s"
+		ForcedBatchDeadlineTimeoutInSec = "60s"
+		SendingToL1DeadlineTimeoutInSec = "20s"
+		SleepDurationInMs = "100ms"
+		ResourcePercentageToCloseBatch = 10
+		GERFinalityNumberOfBlocks = 0
+		ClosingSignalsManagerWaitForCheckingL1Timeout = "10s"
+		ClosingSignalsManagerWaitForCheckingGER = "10s"
+		ClosingSignalsManagerWaitForCheckingForcedBatches = "10s"
+		ForcedBatchesFinalityNumberOfBlocks = 0
+		SenderAddress = "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266"
+		PrivateKeys = [{Path = "/pk/sequencer.keystore", Password = "testonly"}]
+
+[Aggregator]
+Host = "0.0.0.0"
+Port = 50081
+RetryTime = "5s"
+VerifyProofInterval = "30s"
+TxProfitabilityCheckerType = "acceptall"
+TxProfitabilityMinReward = "1.1"
+ProofStatePollingInterval = "5s"
+SenderAddress = "0x70997970c51812dc3a010c7d01b50e0d17dc79c8"
+CleanupLockedProofsInterval = "2m"
+GeneratingProofCleanupThreshold = "10m"
+
+[EthTxManager]
+PrivateKeys = [
+	{Path = "/pk/sequencer.keystore", Password = "testonly"},
+	{Path = "/pk/aggregator.keystore", Password = "testonly"}
+]
+
+[L2GasPriceSuggester]
+Type = "follower"
+UpdatePeriod = "10s"
+Factor = 0.5
+DefaultGasPriceWei = 1000000000
+
+[MTClient]
+URI  = "172.16.200.177:50061" # do not run zkevm-prover in docker, set IP
+
+[Executor]
+URI = "172.16.200.177:50071" # do not run zkevm-prover in docker, set IP
+
+[BroadcastServer]
+Host = "0.0.0.0"
+Port = 61090
+
+[Metrics]
+Host = "0.0.0.0"
+Port = 9091
+Enabled = true
+ProfilingHost = "0.0.0.0"
+ProfilingPort = 6060
+ProfilingEnabled = true
+
+
+
+
