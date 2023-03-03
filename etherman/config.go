@@ -20,4 +20,5 @@ type Config struct {
 
 	MultiGasProvider bool `mapstructure:"MultiGasProvider"`
 	Etherscan        etherscan.Config
+	TronGrid         etherscan.Config
 }

@@ -3,7 +3,6 @@ package tron
 import (
 	"context"
 	"fmt"
-	"os"
 	"strings"
 
 	"github.com/0xPolygonHermez/zkevm-node/tron/pb"
@@ -17,14 +16,14 @@ type Client struct {
 }
 
 // NewClient creates a client that uses the given RPC client.
-func NewClient(url string) *Client {
+func NewClient(url string) (*Client, error) {
 	conn, err := grpc.Dial(url, grpc.WithInsecure())
 	if err != nil {
-		os.Exit(0)
+		return nil, err
 	}
 	return &Client{
 		client: pb.NewWalletClient(conn),
-	}
+	}, nil
 }
 
 func (tc *Client) GetBalance(address string) (int64, error) {

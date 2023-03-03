@@ -10,7 +10,7 @@ Outputs = ["stderr"]
 User = "state_user"
 Password = "state_password"
 Name = "state_db"
-Host = "127.0.0.1"
+Host = "zkevm-state-db"
 Port = "5432"
 EnableLog = false
 MaxConns = 200
@@ -27,18 +27,15 @@ FreeClaimGasLimit = 1500000
 	MaxConns = 200
 
 [Etherman]
-URL = "grpc.shasta.trongrid.io:50051" # Tron as L1
-PoEAddr = "0xDF9CC4F353D4F0C0796462F3F0E0CB56E278491D" # TWMZVMw943yitYi22CseUtH9j6wKMbTCPX
-MaticAddr = "0x4D1F6B31FBE2D71AD3DDDE15FD1BC8F90A5A5B17" # TGzzfqmeCw1LWzqn7wVfuVHnQdwWhcDh9b
-GlobalExitRootManagerAddr = "0x8660D56AF188A05636C7A8978AA711252FD808A1" # TNDjYtHrjydcpzvVHXZKzbi49vScrt8y9L
-L1ChainID = 2494104990 # Tron chainID
-L1ChainType = "Tron" # Tron or Eth
+URL = "http://zkevm-mock-l1-network:8545"
+PoEAddr = "0x610178dA211FEF7D417bC0e6FeD39F05609AD788"
+MaticAddr = "0x5FbDB2315678afecb367f032d93F642f64180aa3"
+GlobalExitRootManagerAddr = "0x2279B7A0a67DB372996a5FaB50D91eAA73d2eBe6"
+L1ChainID = 1337
+L1ChainType = "Eth"
 MultiGasProvider = false
-	[Etherman.Etherscan]
-		ApiKey = "ZYDTESTHERE****"
-	[Etherman.TronGrid]
-		Url = "https://api.shasta.trongrid.io" # Tron Grid, event server
-		ApiKey = "" # Tron Grid API key
+	[Etherscan]
+		ApiKey = ""
 
 [RPC]
 Host = "0.0.0.0"
@@ -56,7 +53,7 @@ DefaultSenderAddress = "0x1111111111111111111111111111111111111111"
 [Synchronizer]
 SyncInterval = "1s"
 SyncChunkSize = 100
-GenBlockNumber = 31796777 # deploymentBlockNumber，sync start block
+GenBlockNumber = 66
 
 [Sequencer]
 MaxSequenceSize = "2000000"
@@ -124,10 +121,10 @@ Factor = 0.5
 DefaultGasPriceWei = 1000000000
 
 [MTClient]
-URI  = "172.16.200.177:50061" # do not run zkevm-prover in docker, set IP
+URI  = "zkevm-prover:50061"
 
 [Executor]
-URI = "172.16.200.177:50071" # do not run zkevm-prover in docker, set IP
+URI = "zkevm-prover:50071"
 
 [BroadcastServer]
 Host = "0.0.0.0"

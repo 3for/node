@@ -110,7 +110,7 @@ type externalGasProviders struct {
 // Client is a simple implementation of EtherMan.
 type Client struct {
 	EthClient             ethereumClient
-	TronChainRPC          *tron.Client
+	TronRPCClient         *tron.Client
 	PoE                   *polygonzkevm.Polygonzkevm
 	GlobalExitRootManager *polygonzkevmglobalexitroot.Polygonzkevmglobalexitroot
 	Matic                 *matic.Matic
@@ -124,52 +124,73 @@ type Client struct {
 
 // NewClient creates a new etherman.
 func NewClient(cfg Config) (*Client, error) {
-	// Connect to ethereum node
-	ethClient, err := ethclient.Dial(cfg.URL)
-	if err != nil {
-		log.Errorf("error connecting to %s: %+v", cfg.URL, err)
-		return nil, err
-	}
-	// Create smc clients
-	poe, err := polygonzkevm.NewPolygonzkevm(cfg.PoEAddr, ethClient)
-	if err != nil {
-		return nil, err
-	}
-	globalExitRoot, err := polygonzkevmglobalexitroot.NewPolygonzkevmglobalexitroot(cfg.GlobalExitRootManagerAddr, ethClient)
-	if err != nil {
-		return nil, err
-	}
-	matic, err := matic.NewMatic(cfg.MaticAddr, ethClient)
-	if err != nil {
-		return nil, err
-	}
-	var scAddresses []common.Address
-	scAddresses = append(scAddresses, cfg.PoEAddr, cfg.GlobalExitRootManagerAddr)
-
-	gProviders := []ethereum.GasPricer{ethClient}
-	if cfg.MultiGasProvider {
-		if cfg.Etherscan.ApiKey == "" {
-			log.Info("No ApiKey provided for etherscan. Ignoring provider...")
-		} else {
-			log.Info("ApiKey detected for etherscan")
-			gProviders = append(gProviders, etherscan.NewEtherscanService(cfg.Etherscan.ApiKey))
+	switch cfg.L1ChainType {
+	case "Eth":
+		// Connect to ethereum node
+		ethClient, err := ethclient.Dial(cfg.URL)
+		if err != nil {
+			log.Errorf("error connecting to %s: %+v", cfg.URL, err)
+			return nil, err
 		}
-		gProviders = append(gProviders, ethgasstation.NewEthGasStationService())
+		// Create smc clients
+		poe, err := polygonzkevm.NewPolygonzkevm(cfg.PoEAddr, ethClient)
+		if err != nil {
+			return nil, err
+		}
+		globalExitRoot, err := polygonzkevmglobalexitroot.NewPolygonzkevmglobalexitroot(cfg.GlobalExitRootManagerAddr, ethClient)
+		if err != nil {
+			return nil, err
+		}
+		matic, err := matic.NewMatic(cfg.MaticAddr, ethClient)
+		if err != nil {
+			return nil, err
+		}
+		var scAddresses []common.Address
+		scAddresses = append(scAddresses, cfg.PoEAddr, cfg.GlobalExitRootManagerAddr)
+
+		gProviders := []ethereum.GasPricer{ethClient}
+		if cfg.MultiGasProvider {
+			if cfg.Etherscan.ApiKey == "" {
+				log.Info("No ApiKey provided for etherscan. Ignoring provider...")
+			} else {
+				log.Info("ApiKey detected for etherscan")
+				gProviders = append(gProviders, etherscan.NewEtherscanService(cfg.Etherscan.ApiKey))
+			}
+			gProviders = append(gProviders, ethgasstation.NewEthGasStationService())
+		}
+
+		return &Client{
+			EthClient:             ethClient,
+			PoE:                   poe,
+			Matic:                 matic,
+			GlobalExitRootManager: globalExitRoot,
+			SCAddresses:           scAddresses,
+			GasProviders: externalGasProviders{
+				MultiGasProvider: cfg.MultiGasProvider,
+				Providers:        gProviders,
+			},
+			cfg:  cfg,
+			auth: map[common.Address]bind.TransactOpts{},
+		}, nil
+	case "Tron":
+		// Connect to Tron node
+		tronRPCClient, err := tron.NewClient(cfg.URL)
+		if err != nil {
+			log.Errorf("error connecting to %s: %+v", cfg.URL, err)
+			return nil, err
+		}
+		var scAddresses []common.Address
+		scAddresses = append(scAddresses, cfg.PoEAddr, cfg.GlobalExitRootManagerAddr)
+
+		return &Client{
+			TronRPCClient: tronRPCClient,
+			SCAddresses:   scAddresses,
+			cfg:           cfg,
+			auth:          map[common.Address]bind.TransactOpts{},
+		}, nil
 	}
 
-	return &Client{
-		EthClient:             ethClient,
-		PoE:                   poe,
-		Matic:                 matic,
-		GlobalExitRootManager: globalExitRoot,
-		SCAddresses:           scAddresses,
-		GasProviders: externalGasProviders{
-			MultiGasProvider: cfg.MultiGasProvider,
-			Providers:        gProviders,
-		},
-		cfg:  cfg,
-		auth: map[common.Address]bind.TransactOpts{},
-	}, nil
+	return nil, nil
 }
 
 // VerifyGenBlockNumber verifies if the genesis Block Number is valid
@@ -902,7 +923,33 @@ func (etherMan *Client) GetTrustedSequencerURL() (string, error) {
 
 // GetL2ChainID returns L2 Chain ID
 func (etherMan *Client) GetL2ChainID() (uint64, error) {
-	return etherMan.PoE.ChainID(&bind.CallOpts{Pending: false})
+	switch etherMan.cfg.L1ChainType {
+	case "Eth":
+		return etherMan.PoE.ChainID(&bind.CallOpts{Pending: false})
+	case "Tron":
+		polygonzkevmABI, err := abi.JSON(strings.NewReader(polygonzkevm.PolygonzkevmABI))
+		if err != nil {
+			return 0, err
+		}
+		callData, err := polygonzkevmABI.Pack("chainID")
+		if err != nil {
+			return 0, err
+		}
+		data, err := etherMan.TronRPCClient.TriggerConstantContract(etherMan.cfg.PoEAddr.String(), callData)
+		if err != nil {
+			return 0, err
+		}
+
+		// Unpack the results
+		var (
+			ret0 = new(uint64)
+		)
+		if err = polygonzkevmABI.UnpackIntoInterface(ret0, "chainID", data); err != nil {
+			return 0, nil
+		}
+		return (*ret0), nil
+	}
+	return 0, nil
 }
 
 // GetL2ForkID returns current L2 Fork ID

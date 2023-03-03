@@ -162,7 +162,8 @@ func main() {
 			chkErr(err)
 			fmt.Println()
 		case "Tron":
-			tronRPCClient := tron.NewClient(network.URL)
+			tronRPCClient, err := tron.NewClient(network.URL)
+			chkErr(err)
 			client := tronRPCClient
 
 			// set private object
