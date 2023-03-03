@@ -324,6 +324,9 @@ func FilterTronLogs(tronGridURL, tronGridAPIKey string, filter tron.NewFilter) (
 	}
 
 	queryByte, err := json.Marshal(queryFilter)
+	if err != nil {
+		return nil, err
+	}
 	req, err := http.NewRequest("POST", GetTronGridEndpoint("/jsonrpc", tronGridURL), bytes.NewBuffer(queryByte))
 	if err != nil {
 		return nil, err
@@ -337,6 +340,22 @@ func FilterTronLogs(tronGridURL, tronGridAPIKey string, filter tron.NewFilter) (
 		return nil, err
 	}
 	return filterChangeResult.Result, nil
+}
+
+func QueryTronInfo(tronGridURL, tronGridAPIKey string, queryFilter tron.FilterOtherParams) ([]byte, error) {
+	queryByte, err := json.Marshal(queryFilter)
+	if err != nil {
+		return nil, err
+	}
+	req, err := http.NewRequest("POST", GetTronGridEndpoint("/jsonrpc", tronGridURL), bytes.NewBuffer(queryByte))
+	if err != nil {
+		return nil, err
+	}
+	result, err := MakeRequest(req, tronGridAPIKey)
+	if err != nil {
+		return nil, err
+	}
+	return result, nil
 }
 
 func MakeRequest(req *http.Request, tronGridAPIKey string) ([]byte, error) {

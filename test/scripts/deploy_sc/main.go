@@ -195,6 +195,21 @@ func main() {
 			chkErr(err)
 			client.TriggerConstantContract(counterAddr, data)
 
+			// create query filter
+			txID := "0xe6993883bd4019fe5ce2b9a906911d7b640d78d8d558dbe678a8a964cf6a624f"
+			var txIDs = []string{txID}
+			queryFilter := tron.FilterOtherParams{
+				BaseQueryParam: tron.GetDefaultBaseParm(),
+				Method:         tron.GetTransactionByHash,
+				Params:         txIDs,
+			}
+			result, err := QueryTronInfo(network.EventURL, network.EventURLApiKey, queryFilter)
+			chkErr(err)
+			var transactionReceipt tron.FilterTxResponse
+			if err := json.Unmarshal(result, &transactionReceipt); err != nil {
+				chkErr(err)
+			}
+
 			//EmitLog contract
 			emitLogAddr := "0xA70FF0AF98D0B03F72D65E02BB2A57A01A4DBC9D" //TRCYwdwgPGMYg13tZ3aQK7UvQdb9U9KgyP
 			emitLogABI := "[{\"anonymous\":false,\"inputs\":[],\"name\":\"Log\",\"type\":\"event\"},{\"anonymous\":false,\"inputs\":[{\"indexed\":true,\"internalType\":\"uint256\",\"name\":\"a\",\"type\":\"uint256\"}],\"name\":\"LogA\",\"type\":\"event\"},{\"anonymous\":false,\"inputs\":[{\"indexed\":true,\"internalType\":\"uint256\",\"name\":\"a\",\"type\":\"uint256\"},{\"indexed\":true,\"internalType\":\"uint256\",\"name\":\"b\",\"type\":\"uint256\"}],\"name\":\"LogAB\",\"type\":\"event\"},{\"anonymous\":false,\"inputs\":[{\"indexed\":true,\"internalType\":\"uint256\",\"name\":\"a\",\"type\":\"uint256\"},{\"indexed\":true,\"internalType\":\"uint256\",\"name\":\"b\",\"type\":\"uint256\"},{\"indexed\":true,\"internalType\":\"uint256\",\"name\":\"c\",\"type\":\"uint256\"}],\"name\":\"LogABC\",\"type\":\"event\"},{\"anonymous\":false,\"inputs\":[{\"indexed\":true,\"internalType\":\"uint256\",\"name\":\"a\",\"type\":\"uint256\"},{\"indexed\":true,\"internalType\":\"uint256\",\"name\":\"b\",\"type\":\"uint256\"},{\"indexed\":true,\"internalType\":\"uint256\",\"name\":\"c\",\"type\":\"uint256\"},{\"indexed\":false,\"internalType\":\"uint256\",\"name\":\"d\",\"type\":\"uint256\"}],\"name\":\"LogABCD\",\"type\":\"event\"},{\"inputs\":[],\"name\":\"emitLogs\",\"outputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"function\"}]"
@@ -325,6 +340,22 @@ func GetTronEventsByContractAddress(tronGridURL, tronGridAPIKey string, address 
 		return nil, err
 	}
 	return filterChangeResult.Result, nil
+}
+
+func QueryTronInfo(tronGridURL, tronGridAPIKey string, queryFilter tron.FilterOtherParams) ([]byte, error) {
+	queryByte, err := json.Marshal(queryFilter)
+	if err != nil {
+		return nil, err
+	}
+	req, err := http.NewRequest("POST", GetTronGridEndpoint("/jsonrpc", tronGridURL), bytes.NewBuffer(queryByte))
+	if err != nil {
+		return nil, err
+	}
+	result, err := MakeRequest(req, tronGridAPIKey)
+	if err != nil {
+		return nil, err
+	}
+	return result, nil
 }
 
 func ethTransfer(ctx context.Context, client *ethclient.Client, auth *bind.TransactOpts, to common.Address, amount *big.Int, nonce *uint64) *types.Transaction {

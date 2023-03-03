@@ -12,6 +12,10 @@ const (
 	GetLogsMethod        = "eth_getLogs"
 	GetTransactionByHash = "eth_getTransactionReceipt"
 	GetBlockByNumber     = "eth_blockNumber"
+	CodeAt               = "eth_getCode"
+	StorageAt            = "eth_getStorageAt"
+	BalanceAt            = "eth_getBalance"
+	NonceAt              = "eth_getTransactionCount"
 	MAXQueryAddress      = 3
 )
 
