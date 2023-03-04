@@ -14,6 +14,7 @@ import (
 	"net/url"
 	"path"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -33,6 +34,7 @@ import (
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/accounts/keystore"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
@@ -194,36 +196,78 @@ func NewClient(cfg Config) (*Client, error) {
 		}, nil
 	}
 
-	return nil, nil
+	return nil, errors.New("L1ChainType should be 'Tron' or 'Eth'")
 }
 
 // VerifyGenBlockNumber verifies if the genesis Block Number is valid
 func (etherMan *Client) VerifyGenBlockNumber(ctx context.Context, genBlockNumber uint64) (bool, error) {
-	genBlock := big.NewInt(0).SetUint64(genBlockNumber)
-	response, err := etherMan.EthClient.CodeAt(ctx, etherMan.cfg.PoEAddr, genBlock)
-	if err != nil {
-		log.Error("error getting smc code for gen block number. Error: ", err)
-		return false, err
-	}
-	responseString := hex.EncodeToString(response)
-	if responseString == "" {
-		return false, nil
-	}
-	responsePrev, err := etherMan.EthClient.CodeAt(ctx, etherMan.cfg.PoEAddr, genBlock.Sub(genBlock, big.NewInt(1)))
-	if err != nil {
-		if parsedErr, ok := tryParseError(err); ok {
-			if errors.Is(parsedErr, ErrMissingTrieNode) {
-				return true, nil
-			}
+	switch etherMan.cfg.L1ChainType {
+	case "Eth":
+		genBlock := big.NewInt(0).SetUint64(genBlockNumber)
+		response, err := etherMan.EthClient.CodeAt(ctx, etherMan.cfg.PoEAddr, genBlock)
+		if err != nil {
+			log.Error("error getting smc code for gen block number. Error: ", err)
+			return false, err
 		}
-		log.Error("error getting smc code for gen block number. Error: ", err)
-		return false, err
+		responseString := hex.EncodeToString(response)
+		if responseString == "" {
+			return false, nil
+		}
+		responsePrev, err := etherMan.EthClient.CodeAt(ctx, etherMan.cfg.PoEAddr, genBlock.Sub(genBlock, big.NewInt(1)))
+		if err != nil {
+			if parsedErr, ok := tryParseError(err); ok {
+				if errors.Is(parsedErr, ErrMissingTrieNode) {
+					return true, nil
+				}
+			}
+			log.Error("error getting smc code for gen block number. Error: ", err)
+			return false, err
+		}
+		responsePrevString := hex.EncodeToString(responsePrev)
+		if responsePrevString != "" {
+			return false, nil
+		}
+		return true, nil
+
+	case "Tron":
+		var params = []string{etherMan.cfg.PoEAddr.String()}
+		params = append(params, "0x"+strconv.FormatUint(genBlockNumber, 16))
+		queryFilter := tron.FilterOtherParams{
+			BaseQueryParam: tron.GetDefaultBaseParm(),
+			Method:         tron.CodeAt,
+			Params:         params,
+		}
+		response, err := QueryTronInfo(etherMan.cfg.TronGrid.Url, etherMan.cfg.TronGrid.ApiKey, queryFilter)
+		if err != nil {
+			log.Error("error getting smc code for gen block number. Error: ", err)
+			return false, err
+		}
+		responseString := hex.EncodeToString(response)
+		if responseString == "" {
+			return false, nil
+		}
+		//query previous info
+		genBlock := big.NewInt(0).SetUint64(genBlockNumber)
+		prevBlock := genBlock.Sub(genBlock, big.NewInt(1)) // one block before
+		params = []string{etherMan.cfg.PoEAddr.String()}
+		params = append(params, hexutil.EncodeBig(prevBlock))
+		queryFilter = tron.FilterOtherParams{
+			BaseQueryParam: tron.GetDefaultBaseParm(),
+			Method:         tron.CodeAt,
+			Params:         params,
+		}
+		responsePrev, err := QueryTronInfo(etherMan.cfg.TronGrid.Url, etherMan.cfg.TronGrid.ApiKey, queryFilter)
+		if err != nil {
+			log.Error("error getting smc code for gen prev block number. Error: ", err)
+			return false, err
+		}
+		responsePrevString := hex.EncodeToString(responsePrev)
+		if responsePrevString != "" {
+			return false, nil
+		}
+		return true, nil
 	}
-	responsePrevString := hex.EncodeToString(responsePrev)
-	if responsePrevString != "" {
-		return false, nil
-	}
-	return true, nil
+	return false, errors.New("L1ChainType should be 'Tron' or 'Eth'")
 }
 
 // GetForks returns fork information
@@ -313,8 +357,10 @@ func (etherMan *Client) GetForks(ctx context.Context) ([]state.ForkIDInterval, e
 		log.Debugf("Tron Forks decoded: %+v", forks)
 		return forks, nil
 	}
-	return nil, nil
+	return nil, errors.New("L1ChainType should be 'Tron' or 'Eth'")
 }
+
+// query Tron blockchain events, as eth_getLogs
 func FilterTronLogs(tronGridURL, tronGridAPIKey string, filter tron.NewFilter) ([]types.Log, error) {
 	filtersArray := []tron.NewFilter{filter}
 	queryFilter := tron.FilterEventParams{
@@ -342,6 +388,7 @@ func FilterTronLogs(tronGridURL, tronGridAPIKey string, filter tron.NewFilter) (
 	return filterChangeResult.Result, nil
 }
 
+// query Tron blockchain info, such as eth_getCode
 func QueryTronInfo(tronGridURL, tronGridAPIKey string, queryFilter tron.FilterOtherParams) ([]byte, error) {
 	queryByte, err := json.Marshal(queryFilter)
 	if err != nil {
@@ -388,19 +435,38 @@ func GetTronGridEndpoint(endpoint, tronGridURL string) string {
 // GetRollupInfoByBlockRange function retrieves the Rollup information that are included in all this ethereum blocks
 // from block x to block y.
 func (etherMan *Client) GetRollupInfoByBlockRange(ctx context.Context, fromBlock uint64, toBlock *uint64) ([]Block, map[common.Hash][]Order, error) {
-	// Filter query
-	query := ethereum.FilterQuery{
-		FromBlock: new(big.Int).SetUint64(fromBlock),
-		Addresses: etherMan.SCAddresses,
+	switch etherMan.cfg.L1ChainType {
+	case "Eth":
+		// Filter query
+		query := ethereum.FilterQuery{
+			FromBlock: new(big.Int).SetUint64(fromBlock),
+			Addresses: etherMan.SCAddresses,
+		}
+		if toBlock != nil {
+			query.ToBlock = new(big.Int).SetUint64(*toBlock)
+		}
+		blocks, blocksOrder, err := etherMan.readEvents(ctx, query)
+		if err != nil {
+			return nil, nil, err
+		}
+		return blocks, blocksOrder, nil
+	case "Tron":
+		var decodedAddress []string
+		for _, adr := range etherMan.SCAddresses {
+			decodedAddress = append(decodedAddress, adr.String()[2:])
+		}
+		//create filter
+		filterLogs := tron.NewFilter{
+			Address:   decodedAddress,
+			FromBlock: "0x" + strconv.FormatUint(fromBlock, 16),
+		}
+		blocks, blocksOrder, err := etherMan.readTronEvents(ctx, filterLogs)
+		if err != nil {
+			return nil, nil, err
+		}
+		return blocks, blocksOrder, nil
 	}
-	if toBlock != nil {
-		query.ToBlock = new(big.Int).SetUint64(*toBlock)
-	}
-	blocks, blocksOrder, err := etherMan.readEvents(ctx, query)
-	if err != nil {
-		return nil, nil, err
-	}
-	return blocks, blocksOrder, nil
+	return nil, nil, errors.New("L1ChainType should be 'Tron' or 'Eth'")
 }
 
 // Order contains the event order to let the synchronizer store the information following this order.
@@ -411,6 +477,24 @@ type Order struct {
 
 func (etherMan *Client) readEvents(ctx context.Context, query ethereum.FilterQuery) ([]Block, map[common.Hash][]Order, error) {
 	logs, err := etherMan.EthClient.FilterLogs(ctx, query)
+	if err != nil {
+		return nil, nil, err
+	}
+	var blocks []Block
+	blocksOrder := make(map[common.Hash][]Order)
+	for _, vLog := range logs {
+		err := etherMan.processEvent(ctx, vLog, &blocks, &blocksOrder)
+		if err != nil {
+			log.Warnf("error processing event. Retrying... Error: %s. vLog: %+v", err.Error(), vLog)
+			return nil, nil, err
+		}
+	}
+	return blocks, blocksOrder, nil
+}
+
+// read Tron events
+func (etherMan *Client) readTronEvents(ctx context.Context, filterLogs tron.NewFilter) ([]Block, map[common.Hash][]Order, error) {
+	logs, err := FilterTronLogs(etherMan.cfg.TronGrid.Url, etherMan.cfg.TronGrid.ApiKey, filterLogs)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -485,39 +569,98 @@ func (etherMan *Client) processEvent(ctx context.Context, vLog types.Log, blocks
 	return nil
 }
 
+// TronParseUpdateGlobalExitRoot is a log parse operation binding the contract event 0x61014378f82a0d809aefaf87a8ac9505b89c321808287a6e7810f29304c1fce3.
+//
+// Solidity: event UpdateGlobalExitRoot(bytes32 indexed mainnetExitRoot, bytes32 indexed rollupExitRoot)
+func (etherMan *Client) TronParseUpdateGlobalExitRoot(log types.Log) (*polygonzkevmglobalexitroot.PolygonzkevmglobalexitrootUpdateGlobalExitRoot, error) {
+	event := new(polygonzkevmglobalexitroot.PolygonzkevmglobalexitrootUpdateGlobalExitRoot)
+	polygonzkevmglobalexitrootABI, err := abi.JSON(strings.NewReader(polygonzkevmglobalexitroot.PolygonzkevmglobalexitrootABI))
+	if err != nil {
+		return nil, err
+	}
+
+	if err := etherMan.TronUnpackLog(polygonzkevmglobalexitrootABI, event, "UpdateGlobalExitRoot", log); err != nil {
+		return nil, err
+	}
+	event.Raw = log
+	return event, nil
+}
+
+// TronUnpackLog unpacks a retrieved log into the provided output structure.
+func (etherMan *Client) TronUnpackLog(tronABI abi.ABI, out interface{}, event string, log types.Log) error {
+	if log.Topics[0] != tronABI.Events[event].ID {
+		return fmt.Errorf("event signature mismatch")
+	}
+	if len(log.Data) > 0 {
+		if err := tronABI.UnpackIntoInterface(out, event, log.Data); err != nil {
+			return err
+		}
+	}
+	var indexed abi.Arguments
+	for _, arg := range tronABI.Events[event].Inputs {
+		if arg.Indexed {
+			indexed = append(indexed, arg)
+		}
+	}
+	return abi.ParseTopics(out, indexed, log.Topics[1:])
+}
+
 func (etherMan *Client) updateGlobalExitRootEvent(ctx context.Context, vLog types.Log, blocks *[]Block, blocksOrder *map[common.Hash][]Order) error {
 	log.Debug("UpdateGlobalExitRoot event detected")
-	globalExitRoot, err := etherMan.GlobalExitRootManager.ParseUpdateGlobalExitRoot(vLog)
-	if err != nil {
-		return err
-	}
-	fullBlock, err := etherMan.EthClient.BlockByHash(ctx, vLog.BlockHash)
-	if err != nil {
-		return fmt.Errorf("error getting hashParent. BlockNumber: %d. Error: %w", vLog.BlockNumber, err)
-	}
-	var gExitRoot GlobalExitRoot
-	gExitRoot.MainnetExitRoot = common.BytesToHash(globalExitRoot.MainnetExitRoot[:])
-	gExitRoot.RollupExitRoot = common.BytesToHash(globalExitRoot.RollupExitRoot[:])
-	gExitRoot.BlockNumber = vLog.BlockNumber
-	gExitRoot.GlobalExitRoot = hash(globalExitRoot.MainnetExitRoot, globalExitRoot.RollupExitRoot)
+	switch etherMan.cfg.L1ChainType {
+	case "Eth":
+		globalExitRoot, err := etherMan.GlobalExitRootManager.ParseUpdateGlobalExitRoot(vLog)
+		if err != nil {
+			return err
+		}
+		fullBlock, err := etherMan.EthClient.BlockByHash(ctx, vLog.BlockHash)
+		if err != nil {
+			return fmt.Errorf("error getting hashParent. BlockNumber: %d. Error: %w", vLog.BlockNumber, err)
+		}
+		var gExitRoot GlobalExitRoot
+		gExitRoot.MainnetExitRoot = common.BytesToHash(globalExitRoot.MainnetExitRoot[:])
+		gExitRoot.RollupExitRoot = common.BytesToHash(globalExitRoot.RollupExitRoot[:])
+		gExitRoot.BlockNumber = vLog.BlockNumber
+		gExitRoot.GlobalExitRoot = hash(globalExitRoot.MainnetExitRoot, globalExitRoot.RollupExitRoot)
 
-	if len(*blocks) == 0 || ((*blocks)[len(*blocks)-1].BlockHash != vLog.BlockHash || (*blocks)[len(*blocks)-1].BlockNumber != vLog.BlockNumber) {
-		t := time.Unix(int64(fullBlock.Time()), 0)
-		block := prepareBlock(vLog, t, fullBlock)
-		block.GlobalExitRoots = append(block.GlobalExitRoots, gExitRoot)
-		*blocks = append(*blocks, block)
-	} else if (*blocks)[len(*blocks)-1].BlockHash == vLog.BlockHash && (*blocks)[len(*blocks)-1].BlockNumber == vLog.BlockNumber {
-		(*blocks)[len(*blocks)-1].GlobalExitRoots = append((*blocks)[len(*blocks)-1].GlobalExitRoots, gExitRoot)
-	} else {
-		log.Error("Error processing UpdateGlobalExitRoot event. BlockHash:", vLog.BlockHash, ". BlockNumber: ", vLog.BlockNumber)
-		return fmt.Errorf("error processing UpdateGlobalExitRoot event")
+		if len(*blocks) == 0 || ((*blocks)[len(*blocks)-1].BlockHash != vLog.BlockHash || (*blocks)[len(*blocks)-1].BlockNumber != vLog.BlockNumber) {
+			t := time.Unix(int64(fullBlock.Time()), 0)
+			block := prepareBlock(vLog, t, fullBlock)
+			block.GlobalExitRoots = append(block.GlobalExitRoots, gExitRoot)
+			*blocks = append(*blocks, block)
+		} else if (*blocks)[len(*blocks)-1].BlockHash == vLog.BlockHash && (*blocks)[len(*blocks)-1].BlockNumber == vLog.BlockNumber {
+			(*blocks)[len(*blocks)-1].GlobalExitRoots = append((*blocks)[len(*blocks)-1].GlobalExitRoots, gExitRoot)
+		} else {
+			log.Error("Error processing UpdateGlobalExitRoot event. BlockHash:", vLog.BlockHash, ". BlockNumber: ", vLog.BlockNumber)
+			return fmt.Errorf("error processing UpdateGlobalExitRoot event")
+		}
+		or := Order{
+			Name: GlobalExitRootsOrder,
+			Pos:  len((*blocks)[len(*blocks)-1].GlobalExitRoots) - 1,
+		}
+		(*blocksOrder)[(*blocks)[len(*blocks)-1].BlockHash] = append((*blocksOrder)[(*blocks)[len(*blocks)-1].BlockHash], or)
+		return nil
+	case "Tron":
+		/*globalExitRoot, err := etherMan.TronParseUpdateGlobalExitRoot(vLog)
+		if err != nil {
+			return err
+		}
+		// create query filter
+		var params = []string{vLog.BlockHash.Hex()}
+		params = append(params, "true") //set true to get full block
+		queryFilter := tron.FilterOtherParams{
+			BaseQueryParam: tron.GetDefaultBaseParm(),
+			Method:         tron.BlockByHash,
+			Params:         params,
+		}
+		result, err := QueryTronInfo(etherMan.cfg.TronGrid.Url, etherMan.cfg.TronGrid.ApiKey, queryFilter)
+		if err != nil {
+			return err
+		}
+		//TODO ZYD parse result to fullBlock. Ethereum will load all uncle blocks*/
+		return nil
 	}
-	or := Order{
-		Name: GlobalExitRootsOrder,
-		Pos:  len((*blocks)[len(*blocks)-1].GlobalExitRoots) - 1,
-	}
-	(*blocksOrder)[(*blocks)[len(*blocks)-1].BlockHash] = append((*blocksOrder)[(*blocks)[len(*blocks)-1].BlockHash], or)
-	return nil
+	return errors.New("L1ChainType should be 'Tron' or 'Eth'")
 }
 
 // WaitTxToBeMined waits for an L1 tx to be mined. It will return error if the tx is reverted or timeout is exceeded
@@ -1133,14 +1276,38 @@ func (etherMan *Client) EstimateGas(ctx context.Context, from common.Address, to
 
 // CheckTxWasMined check if a tx was already mined
 func (etherMan *Client) CheckTxWasMined(ctx context.Context, txHash common.Hash) (bool, *types.Receipt, error) {
-	receipt, err := etherMan.EthClient.TransactionReceipt(ctx, txHash)
-	if errors.Is(err, ethereum.NotFound) {
-		return false, nil, nil
-	} else if err != nil {
-		return false, nil, err
-	}
+	switch etherMan.cfg.L1ChainType {
+	case "Eth":
+		receipt, err := etherMan.EthClient.TransactionReceipt(ctx, txHash)
+		if errors.Is(err, ethereum.NotFound) {
+			return false, nil, nil
+		} else if err != nil {
+			return false, nil, err
+		}
 
-	return true, receipt, nil
+		return true, receipt, nil
+	case "Tron":
+		var txIDs = []string{txHash.Hex()}
+		queryFilter := tron.FilterOtherParams{
+			BaseQueryParam: tron.GetDefaultBaseParm(),
+			Method:         tron.GetTransactionByHash,
+			Params:         txIDs,
+		}
+		result, err := QueryTronInfo(etherMan.cfg.TronGrid.Url, etherMan.cfg.TronGrid.ApiKey, queryFilter)
+		if errors.Is(err, ethereum.NotFound) {
+			return false, nil, nil
+		} else if err != nil {
+			return false, nil, err
+		}
+
+		var transactionReceipt tron.FilterTxResponse
+		if err := json.Unmarshal(result, &transactionReceipt); err != nil {
+			return false, nil, err
+		}
+
+		return true, &transactionReceipt.Result, nil
+	}
+	return false, nil, errors.New("L1ChainType should be 'Tron' or 'Eth'")
 }
 
 // SignTx tries to sign a transaction accordingly to the provided sender
@@ -1166,7 +1333,7 @@ func (etherMan *Client) GetRevertMessage(ctx context.Context, tx *types.Transact
 	if err != nil {
 		return "", err
 	}
-
+	//TODO, ZYD, does Tron support RevertReason?
 	if receipt.Status == types.ReceiptStatusFailed {
 		revertMessage, err := operations.RevertReason(ctx, etherMan.EthClient, tx, receipt.BlockNumber)
 		if err != nil {

@@ -16,6 +16,7 @@ const (
 	StorageAt            = "eth_getStorageAt"
 	BalanceAt            = "eth_getBalance"
 	NonceAt              = "eth_getTransactionCount"
+	BlockByHash          = "eth_getBlockByHash"
 	MAXQueryAddress      = 3
 )
 
