@@ -263,7 +263,8 @@ func (etherMan *Client) VerifyGenBlockNumber(ctx context.Context, genBlockNumber
 		}
 		responsePrevString := hex.EncodeToString(responsePrev)
 		if responsePrevString != "" {
-			return false, nil
+			//return false, nil //TODO. ZYD. Tron eth_getCode DO NOT support blocknumber filter now.
+			return true, nil
 		}
 		return true, nil
 	}
@@ -1042,6 +1043,60 @@ type FilterRPCTxResponse struct {
 	Result rpcTransaction `json:result`
 }
 
+type rpcBlockAndHeader struct {
+	head TronHeader
+	rpcBlock
+}
+type FilterBlockResponse struct {
+	tron.BaseQueryParam
+	Result rpcBlockAndHeader `json:result`
+}
+
+type FilterBlockHeaderResponse struct {
+	tron.BaseQueryParam
+	Result TronHeader `json:result`
+}
+
+// Tron Header represents a block header in the Ethereum blockchain.
+type TronHeader struct {
+	ParentHash  common.Hash      `json:"parentHash"       gencodec:"required"`
+	UncleHash   common.Hash      `json:"sha3Uncles"       gencodec:"required"`
+	Coinbase    common.Address   `json:"miner"`
+	Root        string           `json:"stateRoot"        gencodec:"required"` //TODO. ZYD. the result format should be 64bit hash
+	TxHash      common.Hash      `json:"transactionsRoot" gencodec:"required"`
+	ReceiptHash common.Hash      `json:"receiptsRoot"     gencodec:"required"`
+	Bloom       types.Bloom      `json:"logsBloom"        gencodec:"required"`
+	Difficulty  string           `json:"difficulty"       gencodec:"required"` //TODO. ZYD. the result format not right
+	Number      string           `json:"number"           gencodec:"required"` //TODO. ZYD. the result format not right
+	GasLimit    string           `json:"gasLimit"         gencodec:"required"` //TODO. ZYD. the result format not right
+	GasUsed     string           `json:"gasUsed"          gencodec:"required"` //TODO. ZYD. the result format not right
+	Time        string           `json:"timestamp"        gencodec:"required"` //TODO. ZYD. the result format not right
+	Extra       string           `json:"extraData"        gencodec:"required"` //TODO. ZYD. the result format not right
+	MixDigest   common.Hash      `json:"mixHash"`
+	Nonce       types.BlockNonce `json:"nonce"`
+
+	// BaseFee was added by EIP-1559 and is ignored in legacy headers.
+	BaseFee string `json:"baseFeePerGas" rlp:"optional"` //TODO. ZYD. the result format not right
+
+	// WithdrawalsHash was added by EIP-4895 and is ignored in legacy headers.
+	WithdrawalsHash *common.Hash `json:"withdrawalsRoot" rlp:"optional"`
+
+	/*
+		TODO (MariusVanDerWijden) Add this field once needed
+		// Random was added during the merge and contains the BeaconState randomness
+		Random common.Hash `json:"random" rlp:"optional"`
+	*/
+}
+type FilterHeaderResponse struct {
+	tron.BaseQueryParam
+	Result types.Header `json:result`
+}
+
+type FilterTronHeaderResponse struct {
+	tron.BaseQueryParam
+	Result TronHeader `json:result`
+}
+
 // TronTransactionByHash returns the transaction with the given hash.
 func (etherMan *Client) TronTransactionByHash(hash common.Hash) (tx *types.Transaction, isPending bool, err error) {
 	var params = []string{hash.Hex()}
@@ -1514,28 +1569,98 @@ func hash(data ...[32]byte) [32]byte {
 	return res
 }
 
+func TronHeader2EthHeader(tronHeader *TronHeader) (*types.Header, error) {
+	var ethHeader types.Header
+
+	ethHeader.ParentHash = tronHeader.ParentHash
+	ethHeader.UncleHash = tronHeader.UncleHash
+	ethHeader.Coinbase = tronHeader.Coinbase
+	ethHeader.Root = common.HexToHash(tronHeader.Root)
+	ethHeader.TxHash = tronHeader.TxHash
+	ethHeader.ReceiptHash = tronHeader.ReceiptHash
+	ethHeader.Bloom = tronHeader.Bloom
+
+	var difficulty = new(big.Int)
+	if tronHeader.Difficulty == "0x0" {
+		difficulty = big.NewInt(0)
+	} else {
+		diff, ok := new(big.Int).SetString(tronHeader.Difficulty, 16)
+		if !ok {
+			return nil, fmt.Errorf("could not parse tronHeader.Difficulty")
+		}
+		difficulty = diff
+	}
+	ethHeader.Difficulty = difficulty
+	number, ok := new(big.Int).SetString(tronHeader.Number, 16)
+	if !ok {
+		return nil, fmt.Errorf("could not parse tronHeader.number")
+	}
+	ethHeader.Number = number
+
+	gasLimit, err := strconv.ParseUint(tronHeader.GasLimit, 16, 64)
+	if err != nil {
+		return nil, fmt.Errorf("could not parse tronHeader.GasLimit, err:", err)
+	}
+	ethHeader.GasLimit = gasLimit
+
+	gasUsed, err := strconv.ParseUint(tronHeader.GasUsed, 16, 64)
+	if err != nil {
+		return nil, fmt.Errorf("could not parse tronHeader.GasUsed, err:", err)
+	}
+	ethHeader.GasUsed = gasUsed
+
+	time, err := strconv.ParseUint(tronHeader.Time, 16, 64)
+	if err != nil {
+		return nil, fmt.Errorf("could not parse tronHeader.Time, err:", err)
+	}
+	ethHeader.Time = time
+
+	extra, err := hex.DecodeString(tronHeader.Extra)
+	if err != nil {
+		return nil, fmt.Errorf("could not parse tronHeader.Extra, err:", err)
+	}
+	ethHeader.Extra = extra
+	ethHeader.MixDigest = tronHeader.MixDigest
+	ethHeader.Nonce = tronHeader.Nonce
+
+	baseFee, ok := new(big.Int).SetString(tronHeader.BaseFee, 16)
+	if !ok {
+		return nil, fmt.Errorf("could not parse tronHeader.BaseFee")
+	}
+	ethHeader.BaseFee = baseFee
+
+	ethHeader.WithdrawalsHash = tronHeader.WithdrawalsHash
+
+	return &ethHeader, nil
+}
+
 // TronHeaderByNumber returns a block header from the current canonical chain. If number is
 // nil, the latest known header is returned.
 func (etherMan *Client) TronHeaderByNumber(number *big.Int) (*types.Header, error) {
-	var head *types.Header
 	var params = []string{hexutil.EncodeBig(number)}
-	params = append(params, "true") //set true to get full block
+	params = append(params, "false") //If true it returns the full transaction objects, if false only the hashes of the transactions.
 	queryFilter := tron.FilterOtherParams{
 		BaseQueryParam: tron.GetDefaultBaseParm(),
 		Method:         tron.HeaderByNumber,
 		Params:         params,
 	}
 	raw, err := QueryTronInfo(etherMan.cfg.TronGrid.Url, etherMan.cfg.TronGrid.ApiKey, queryFilter)
+	fmt.Println(string(raw))
 	if err != nil {
 		return nil, err
 	}
-	if err := json.Unmarshal(raw, &head); err != nil {
+	var blockResp FilterBlockHeaderResponse
+
+	if err := json.Unmarshal(raw, &blockResp); err != nil {
 		return nil, err
 	}
-	if err == nil && head == nil {
-		err = ethereum.NotFound
+
+	var tronHeaderResp FilterTronHeaderResponse
+	if err := json.Unmarshal(raw, &tronHeaderResp); err != nil {
+		return nil, err
 	}
-	return head, err
+	tronHeader := tronHeaderResp.Result
+	return TronHeader2EthHeader(&tronHeader)
 }
 
 // HeaderByNumber returns a block header from the current canonical chain. If number is
