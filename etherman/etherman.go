@@ -1042,7 +1042,12 @@ type FilterRPCTxResponse struct {
 	tron.BaseQueryParam
 	Result rpcTransaction `json:result`
 }
-
+type rpcBlock struct {
+	Hash         common.Hash         `json:"hash"`
+	Transactions []rpcTransaction    `json:"transactions"`
+	UncleHashes  []common.Hash       `json:"uncles"`
+	Withdrawals  []*types.Withdrawal `json:"withdrawals,omitempty"`
+}
 type rpcBlockAndHeader struct {
 	head TronHeader
 	rpcBlock
@@ -1051,8 +1056,7 @@ type FilterBlockResponse struct {
 	tron.BaseQueryParam
 	Result rpcBlockAndHeader `json:result`
 }
-
-type FilterBlockHeaderResponse struct {
+type FilterTronHeaderResponse struct {
 	tron.BaseQueryParam
 	Result TronHeader `json:result`
 }
@@ -1087,15 +1091,6 @@ type TronHeader struct {
 		Random common.Hash `json:"random" rlp:"optional"`
 	*/
 }
-type FilterHeaderResponse struct {
-	tron.BaseQueryParam
-	Result types.Header `json:result`
-}
-
-type FilterTronHeaderResponse struct {
-	tron.BaseQueryParam
-	Result TronHeader `json:result`
-}
 
 // TronTransactionByHash returns the transaction with the given hash.
 func (etherMan *Client) TronTransactionByHash(hash common.Hash) (tx *types.Transaction, isPending bool, err error) {
@@ -1123,12 +1118,6 @@ func (etherMan *Client) TronTransactionByHash(hash common.Hash) (tx *types.Trans
 	return tx, transaction.Result.BlockNumber == nil, nil
 }
 
-type rpcBlock struct {
-	Hash         common.Hash      `json:"hash"`
-	Transactions []rpcTransaction `json:"transactions"`
-	UncleHashes  []common.Hash    `json:"uncles"`
-}
-
 // TronBlockByHash returns the given full block.
 //
 // Note that loading full blocks requires two requests. Use HeaderByHash
@@ -1145,36 +1134,7 @@ func (etherMan *Client) TronBlockByHash(hash common.Hash) (*types.Block, error) 
 	if err != nil {
 		return nil, err
 	}
-	// Decode header and transactions.
-	var head *types.Header
-	var body rpcBlock
-	if err := json.Unmarshal(raw, &head); err != nil {
-		return nil, err
-	}
-	if err := json.Unmarshal(raw, &body); err != nil {
-		return nil, err
-	}
-	// Quick-verify transaction and uncle lists. This mostly helps with debugging the server.
-	if head.UncleHash == types.EmptyUncleHash && len(body.UncleHashes) > 0 {
-		return nil, fmt.Errorf("server returned non-empty uncle list but block header indicates no uncles")
-	}
-	if head.UncleHash != types.EmptyUncleHash && len(body.UncleHashes) == 0 {
-		return nil, fmt.Errorf("server returned empty uncle list but block header indicates uncles")
-	}
-	if head.TxHash == types.EmptyRootHash && len(body.Transactions) > 0 {
-		return nil, fmt.Errorf("server returned non-empty transaction list but block header indicates no transactions")
-	}
-	if head.TxHash != types.EmptyRootHash && len(body.Transactions) == 0 {
-		return nil, fmt.Errorf("server returned empty transaction list but block header indicates transactions")
-	}
-	// Load uncles because they are not included in the block response.
-	var uncles []*types.Header //DO NOTHING for Tron
-	// Fill the sender cache of transactions in the block.
-	txs := make([]*types.Transaction, len(body.Transactions))
-	for i, tx := range body.Transactions {
-		txs[i] = tx.tx
-	}
-	return types.NewBlockWithHeader(head).WithBody(txs, uncles), nil
+	return parseTronBlock(raw)
 }
 func (etherMan *Client) sequencedBatchesEvent(ctx context.Context, vLog types.Log, blocks *[]Block, blocksOrder *map[common.Hash][]Order) error {
 	log.Debug("SequenceBatches event detected")
@@ -1580,42 +1540,69 @@ func TronHeader2EthHeader(tronHeader *TronHeader) (*types.Header, error) {
 	ethHeader.ReceiptHash = tronHeader.ReceiptHash
 	ethHeader.Bloom = tronHeader.Bloom
 
-	var difficulty = new(big.Int)
-	if tronHeader.Difficulty == "0x0" {
-		difficulty = big.NewInt(0)
-	} else {
-		diff, ok := new(big.Int).SetString(tronHeader.Difficulty, 16)
-		if !ok {
-			return nil, fmt.Errorf("could not parse tronHeader.Difficulty")
-		}
-		difficulty = diff
+	str := tronHeader.Difficulty
+	base := 10
+	if strings.HasPrefix(str, "0x") {
+		str = str[2:]
+		base = 16
+	}
+	difficulty, ok := new(big.Int).SetString(str, base)
+	if !ok {
+		return nil, fmt.Errorf("could not parse tronHeader.Difficulty")
 	}
 	ethHeader.Difficulty = difficulty
-	number, ok := new(big.Int).SetString(tronHeader.Number, 16)
+
+	str = tronHeader.Number
+	base = 10
+	if strings.HasPrefix(str, "0x") {
+		str = str[2:]
+		base = 16
+	}
+	number, ok := new(big.Int).SetString(str, base)
 	if !ok {
 		return nil, fmt.Errorf("could not parse tronHeader.number")
 	}
 	ethHeader.Number = number
 
-	gasLimit, err := strconv.ParseUint(tronHeader.GasLimit, 16, 64)
+	str = tronHeader.GasLimit
+	base = 10
+	if strings.HasPrefix(str, "0x") {
+		str = str[2:]
+		base = 16
+	}
+
+	gasLimit, err := strconv.ParseUint(str, base, 0)
 	if err != nil {
 		return nil, fmt.Errorf("could not parse tronHeader.GasLimit, err:", err)
 	}
 	ethHeader.GasLimit = gasLimit
 
-	gasUsed, err := strconv.ParseUint(tronHeader.GasUsed, 16, 64)
+	str = tronHeader.GasUsed
+	base = 10
+	if strings.HasPrefix(str, "0x") {
+		str = str[2:]
+		base = 16
+	}
+	gasUsed, err := strconv.ParseUint(str, base, 0)
 	if err != nil {
 		return nil, fmt.Errorf("could not parse tronHeader.GasUsed, err:", err)
 	}
 	ethHeader.GasUsed = gasUsed
 
-	time, err := strconv.ParseUint(tronHeader.Time, 16, 64)
+	str = tronHeader.Time
+	base = 10
+	if strings.HasPrefix(str, "0x") {
+		str = str[2:]
+		base = 16
+	}
+	time, err := strconv.ParseUint(str, 16, 0)
 	if err != nil {
 		return nil, fmt.Errorf("could not parse tronHeader.Time, err:", err)
 	}
 	ethHeader.Time = time
 
-	extra, err := hex.DecodeString(tronHeader.Extra)
+	str = strings.TrimPrefix(tronHeader.Extra, "0x")
+	extra, err := hex.DecodeString(str)
 	if err != nil {
 		return nil, fmt.Errorf("could not parse tronHeader.Extra, err:", err)
 	}
@@ -1623,7 +1610,13 @@ func TronHeader2EthHeader(tronHeader *TronHeader) (*types.Header, error) {
 	ethHeader.MixDigest = tronHeader.MixDigest
 	ethHeader.Nonce = tronHeader.Nonce
 
-	baseFee, ok := new(big.Int).SetString(tronHeader.BaseFee, 16)
+	str = tronHeader.BaseFee
+	base = 10
+	if strings.HasPrefix(str, "0x") {
+		str = str[2:]
+		base = 16
+	}
+	baseFee, ok := new(big.Int).SetString(str, base)
 	if !ok {
 		return nil, fmt.Errorf("could not parse tronHeader.BaseFee")
 	}
@@ -1649,11 +1642,6 @@ func (etherMan *Client) TronHeaderByNumber(number *big.Int) (*types.Header, erro
 	if err != nil {
 		return nil, err
 	}
-	var blockResp FilterBlockHeaderResponse
-
-	if err := json.Unmarshal(raw, &blockResp); err != nil {
-		return nil, err
-	}
 
 	var tronHeaderResp FilterTronHeaderResponse
 	if err := json.Unmarshal(raw, &tronHeaderResp); err != nil {
@@ -1675,16 +1663,94 @@ func (etherMan *Client) HeaderByNumber(ctx context.Context, number *big.Int) (*t
 	return nil, errors.New("L1ChainType should be 'Tron' or 'Eth'")
 }
 
-// EthBlockByNumber function retrieves the ethereum block information by ethereum block number.
-func (etherMan *Client) EthBlockByNumber(ctx context.Context, blockNumber uint64) (*types.Block, error) {
-	block, err := etherMan.EthClient.BlockByNumber(ctx, new(big.Int).SetUint64(blockNumber))
-	if err != nil {
-		if errors.Is(err, ethereum.NotFound) || err.Error() == "block does not exist in blockchain" {
-			return nil, ErrNotFound
-		}
+func parseTronBlock(raw []byte) (*types.Block, error) {
+	// Decode header and transactions.
+	var head *types.Header
+	var body rpcBlock
+	var tronHeaderResp FilterTronHeaderResponse
+	if err := json.Unmarshal(raw, &tronHeaderResp); err != nil {
 		return nil, err
 	}
-	return block, nil
+	tronHeader := tronHeaderResp.Result
+	head, err := TronHeader2EthHeader(&tronHeader)
+	if err != nil {
+		return nil, err
+	}
+
+	var tronBlockResp FilterBlockResponse
+	if err := json.Unmarshal(raw, &tronBlockResp); err != nil {
+		return nil, err
+	}
+	body = tronBlockResp.Result.rpcBlock
+	// Quick-verify transaction and uncle lists. This mostly helps with debugging the server.
+	if head.UncleHash == types.EmptyUncleHash && len(body.UncleHashes) > 0 {
+		return nil, fmt.Errorf("server returned non-empty uncle list but block header indicates no uncles")
+	}
+	if head.UncleHash != types.EmptyUncleHash && len(body.UncleHashes) == 0 {
+		return nil, fmt.Errorf("server returned empty uncle list but block header indicates uncles")
+	}
+	if head.TxHash == types.EmptyRootHash && len(body.Transactions) > 0 {
+		return nil, fmt.Errorf("server returned non-empty transaction list but block header indicates no transactions")
+	}
+	if head.TxHash != types.EmptyRootHash && len(body.Transactions) == 0 {
+		return nil, fmt.Errorf("server returned empty transaction list but block header indicates transactions")
+	}
+	// Load uncles because they are not included in the block response.
+	var uncles []*types.Header //
+
+	// Fill the sender cache of transactions in the block.
+	txs := make([]*types.Transaction, len(body.Transactions))
+	for i, tx := range body.Transactions {
+		txs[i] = tx.tx
+	}
+	return types.NewBlockWithHeader(head).WithBody(txs, uncles).WithWithdrawals(body.Withdrawals), nil
+}
+
+// TronBlockByNumber returns a block from the current canonical chain. If number is nil, the
+// latest known block is returned.
+//
+// Note that loading full blocks requires two requests. Use HeaderByNumber
+// if you don't need all transactions or uncle headers.
+func (etherMan *Client) TronBlockByNumber(number *big.Int) (*types.Block, error) {
+	var params = []string{hexutil.EncodeBig(number)}
+	params = append(params, "true") //If true it returns the full transaction objects, if false only the hashes of the transactions.
+	queryFilter := tron.FilterOtherParams{
+		BaseQueryParam: tron.GetDefaultBaseParm(),
+		Method:         tron.HeaderByNumber,
+		Params:         params,
+	}
+	raw, err := QueryTronInfo(etherMan.cfg.TronGrid.Url, etherMan.cfg.TronGrid.ApiKey, queryFilter)
+	fmt.Println(string(raw))
+	if err != nil {
+		return nil, err
+	}
+
+	return parseTronBlock(raw)
+}
+
+// EthBlockByNumber function retrieves the ethereum block information by ethereum block number.
+func (etherMan *Client) EthBlockByNumber(ctx context.Context, blockNumber uint64) (*types.Block, error) {
+	switch etherMan.cfg.L1ChainType {
+	case "Eth":
+		block, err := etherMan.EthClient.BlockByNumber(ctx, new(big.Int).SetUint64(blockNumber))
+		if err != nil {
+			if errors.Is(err, ethereum.NotFound) || err.Error() == "block does not exist in blockchain" {
+				return nil, ErrNotFound
+			}
+			return nil, err
+		}
+		return block, nil
+	case "Tron":
+		block, err := etherMan.TronBlockByNumber(new(big.Int).SetUint64(blockNumber))
+		if err != nil {
+			if errors.Is(err, ethereum.NotFound) || err.Error() == "block does not exist in blockchain" {
+				return nil, ErrNotFound
+			}
+			return nil, err
+		}
+		return block, nil
+	}
+	return nil, errors.New("L1ChainType should be 'Tron' or 'Eth'")
 }
 
 // GetLastBatchTimestamp function allows to retrieve the lastTimestamp value in the smc

@@ -301,14 +301,14 @@ services:
 
   zkevm-prover:
     container_name: zkevm-prover
-    image: hermeznetwork/zkevm-prover:8b07f44
+    image: hermeznetwork/zkevm-prover:latest
     ports:
       # - 50051:50051 # Prover
       - 50052:50052 # Mock prover
       - 50061:50061 # MT
       - 50071:50071 # Executor
     volumes:
-      - ./config/test.prover.config.json:/usr/src/app/config.json
+      - ./config/local.test.prover.config.json:/usr/src/app/config.json
     command: >
       zkProver -c /usr/src/app/config.json
 
