@@ -8,16 +8,18 @@ import (
 )
 
 const (
-	JsonRpcVersion       = "2.0"
-	GetLogsMethod        = "eth_getLogs"
-	GetTransactionByHash = "eth_getTransactionReceipt"
-	GetBlockByNumber     = "eth_blockNumber"
-	CodeAt               = "eth_getCode"
-	StorageAt            = "eth_getStorageAt"
-	BalanceAt            = "eth_getBalance"
-	NonceAt              = "eth_getTransactionCount"
-	BlockByHash          = "eth_getBlockByHash"
-	MAXQueryAddress      = 3
+	JsonRpcVersion        = "2.0"
+	GetLogsMethod         = "eth_getLogs"
+	GetTransactionReceipt = "eth_getTransactionReceipt"
+	GetBlockByNumber      = "eth_blockNumber"
+	CodeAt                = "eth_getCode"
+	StorageAt             = "eth_getStorageAt"
+	BalanceAt             = "eth_getBalance"
+	NonceAt               = "eth_getTransactionCount"
+	BlockByHash           = "eth_getBlockByHash"
+	GetTransactionByHash  = "eth_getTransactionByHash"
+	HeaderByNumber        = "eth_getBlockByNumber"
+	MAXQueryAddress       = 3
 )
 
 type NewFilter struct {

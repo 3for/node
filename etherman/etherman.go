@@ -239,7 +239,7 @@ func (etherMan *Client) VerifyGenBlockNumber(ctx context.Context, genBlockNumber
 		}
 		response, err := QueryTronInfo(etherMan.cfg.TronGrid.Url, etherMan.cfg.TronGrid.ApiKey, queryFilter)
 		if err != nil {
-			log.Error("error getting smc code for gen block number. Error: ", err)
+			log.Error("error getting Tron smc code for gen block number. Error: ", err)
 			return false, err
 		}
 		responseString := hex.EncodeToString(response)
@@ -258,7 +258,7 @@ func (etherMan *Client) VerifyGenBlockNumber(ctx context.Context, genBlockNumber
 		}
 		responsePrev, err := QueryTronInfo(etherMan.cfg.TronGrid.Url, etherMan.cfg.TronGrid.ApiKey, queryFilter)
 		if err != nil {
-			log.Error("error getting smc code for gen prev block number. Error: ", err)
+			log.Error("error getting Tron prev smc code for gen prev block number. Error: ", err)
 			return false, err
 		}
 		responsePrevString := hex.EncodeToString(responsePrev)
@@ -268,6 +268,22 @@ func (etherMan *Client) VerifyGenBlockNumber(ctx context.Context, genBlockNumber
 		return true, nil
 	}
 	return false, errors.New("L1ChainType should be 'Tron' or 'Eth'")
+}
+
+// TronParseUpdateZkEVMVersion is a log parse operation binding the contract event 0xed7be53c9f1a96a481223b15568a5b1a475e01a74b347d6ca187c8bf0c078cd6.
+//
+// Solidity: event UpdateZkEVMVersion(uint64 numBatch, uint64 forkID, string version)
+func (etherMan *Client) TronParseUpdateZkEVMVersion(log types.Log) (*polygonzkevm.PolygonzkevmUpdateZkEVMVersion, error) {
+	event := new(polygonzkevm.PolygonzkevmUpdateZkEVMVersion)
+	polygonzkevmABI, err := abi.JSON(strings.NewReader(polygonzkevm.PolygonzkevmABI))
+	if err != nil {
+		return nil, err
+	}
+	if err := etherMan.UnpackLog(polygonzkevmABI, event, "UpdateZkEVMVersion", log); err != nil {
+		return nil, err
+	}
+	event.Raw = log
+	return event, nil
 }
 
 // GetForks returns fork information
@@ -331,7 +347,7 @@ func (etherMan *Client) GetForks(ctx context.Context) ([]state.ForkIDInterval, e
 
 		var forks []state.ForkIDInterval
 		for i, l := range logs {
-			zkevmVersion, err := etherMan.PoE.ParseUpdateZkEVMVersion(l)
+			zkevmVersion, err := etherMan.TronParseUpdateZkEVMVersion(l)
 			if err != nil {
 				return []state.ForkIDInterval{}, err
 			}
@@ -641,23 +657,36 @@ func (etherMan *Client) updateGlobalExitRootEvent(ctx context.Context, vLog type
 		(*blocksOrder)[(*blocks)[len(*blocks)-1].BlockHash] = append((*blocksOrder)[(*blocks)[len(*blocks)-1].BlockHash], or)
 		return nil
 	case "Tron":
-		/*globalExitRoot, err := etherMan.TronParseUpdateGlobalExitRoot(vLog)
+		globalExitRoot, err := etherMan.TronParseUpdateGlobalExitRoot(vLog)
 		if err != nil {
 			return err
 		}
-		// create query filter
-		var params = []string{vLog.BlockHash.Hex()}
-		params = append(params, "true") //set true to get full block
-		queryFilter := tron.FilterOtherParams{
-			BaseQueryParam: tron.GetDefaultBaseParm(),
-			Method:         tron.BlockByHash,
-			Params:         params,
-		}
-		result, err := QueryTronInfo(etherMan.cfg.TronGrid.Url, etherMan.cfg.TronGrid.ApiKey, queryFilter)
+		fullBlock, err := etherMan.TronBlockByHash(vLog.BlockHash)
 		if err != nil {
-			return err
+			return fmt.Errorf("error getting hashParent. BlockNumber: %d. Error: %w", vLog.BlockNumber, err)
 		}
-		//TODO ZYD parse result to fullBlock. Ethereum will load all uncle blocks*/
+		var gExitRoot GlobalExitRoot
+		gExitRoot.MainnetExitRoot = common.BytesToHash(globalExitRoot.MainnetExitRoot[:])
+		gExitRoot.RollupExitRoot = common.BytesToHash(globalExitRoot.RollupExitRoot[:])
+		gExitRoot.BlockNumber = vLog.BlockNumber
+		gExitRoot.GlobalExitRoot = hash(globalExitRoot.MainnetExitRoot, globalExitRoot.RollupExitRoot)
+
+		if len(*blocks) == 0 || ((*blocks)[len(*blocks)-1].BlockHash != vLog.BlockHash || (*blocks)[len(*blocks)-1].BlockNumber != vLog.BlockNumber) {
+			t := time.Unix(int64(fullBlock.Time()), 0)
+			block := prepareBlock(vLog, t, fullBlock)
+			block.GlobalExitRoots = append(block.GlobalExitRoots, gExitRoot)
+			*blocks = append(*blocks, block)
+		} else if (*blocks)[len(*blocks)-1].BlockHash == vLog.BlockHash && (*blocks)[len(*blocks)-1].BlockNumber == vLog.BlockNumber {
+			(*blocks)[len(*blocks)-1].GlobalExitRoots = append((*blocks)[len(*blocks)-1].GlobalExitRoots, gExitRoot)
+		} else {
+			log.Error("Error processing UpdateGlobalExitRoot event. BlockHash:", vLog.BlockHash, ". BlockNumber: ", vLog.BlockNumber)
+			return fmt.Errorf("error processing UpdateGlobalExitRoot event")
+		}
+		or := Order{
+			Name: GlobalExitRootsOrder,
+			Pos:  len((*blocks)[len(*blocks)-1].GlobalExitRoots) - 1,
+		}
+		(*blocksOrder)[(*blocks)[len(*blocks)-1].BlockHash] = append((*blocksOrder)[(*blocks)[len(*blocks)-1].BlockHash], or)
 		return nil
 	}
 	return errors.New("L1ChainType should be 'Tron' or 'Eth'")
@@ -795,119 +824,389 @@ func (etherMan *Client) TrustedSequencer() (common.Address, error) {
 	return etherMan.PoE.TrustedSequencer(&bind.CallOpts{Pending: false})
 }
 
-func (etherMan *Client) forcedBatchEvent(ctx context.Context, vLog types.Log, blocks *[]Block, blocksOrder *map[common.Hash][]Order) error {
-	log.Debug("ForceBatch event detected")
-	fb, err := etherMan.PoE.ParseForceBatch(vLog)
+// TronParseForceBatch is a log parse operation binding the contract event 0xf94bb37db835f1ab585ee00041849a09b12cd081d77fa15ca070757619cbc931.
+//
+// Solidity: event ForceBatch(uint64 indexed forceBatchNum, bytes32 lastGlobalExitRoot, address sequencer, bytes transactions)
+func (etherMan *Client) TronParseForceBatch(log types.Log) (*polygonzkevm.PolygonzkevmForceBatch, error) {
+	event := new(polygonzkevm.PolygonzkevmForceBatch)
+	polygonzkevmABI, err := abi.JSON(strings.NewReader(polygonzkevm.PolygonzkevmABI))
 	if err != nil {
-		return err
+		return nil, err
 	}
-	var forcedBatch ForcedBatch
-	forcedBatch.BlockNumber = vLog.BlockNumber
-	forcedBatch.ForcedBatchNumber = fb.ForceBatchNum
-	forcedBatch.GlobalExitRoot = fb.LastGlobalExitRoot
-	// Read the tx for this batch.
-	tx, isPending, err := etherMan.EthClient.TransactionByHash(ctx, vLog.TxHash)
-	if err != nil {
-		return err
-	} else if isPending {
-		return fmt.Errorf("error: tx is still pending. TxHash: %s", tx.Hash().String())
+	if err := etherMan.UnpackLog(polygonzkevmABI, event, "ForceBatch", log); err != nil {
+		return nil, err
 	}
-	msg, err := tx.AsMessage(types.NewLondonSigner(tx.ChainId()), big.NewInt(0))
-	if err != nil {
-		return err
-	}
-	if fb.Sequencer == msg.From() {
-		txData := tx.Data()
-		// Extract coded txs.
-		// Load contract ABI
-		abi, err := abi.JSON(strings.NewReader(polygonzkevm.PolygonzkevmABI))
-		if err != nil {
-			return err
-		}
-
-		// Recover Method from signature and ABI
-		method, err := abi.MethodById(txData[:4])
-		if err != nil {
-			return err
-		}
-
-		// Unpack method inputs
-		data, err := method.Inputs.Unpack(txData[4:])
-		if err != nil {
-			return err
-		}
-		bytedata := data[0].([]byte)
-		forcedBatch.RawTxsData = bytedata
-	} else {
-		forcedBatch.RawTxsData = fb.Transactions
-	}
-	forcedBatch.Sequencer = fb.Sequencer
-	fullBlock, err := etherMan.EthClient.BlockByHash(ctx, vLog.BlockHash)
-	if err != nil {
-		return fmt.Errorf("error getting hashParent. BlockNumber: %d. Error: %w", vLog.BlockNumber, err)
-	}
-	t := time.Unix(int64(fullBlock.Time()), 0)
-	forcedBatch.ForcedAt = t
-	if len(*blocks) == 0 || ((*blocks)[len(*blocks)-1].BlockHash != vLog.BlockHash || (*blocks)[len(*blocks)-1].BlockNumber != vLog.BlockNumber) {
-		block := prepareBlock(vLog, t, fullBlock)
-		block.ForcedBatches = append(block.ForcedBatches, forcedBatch)
-		*blocks = append(*blocks, block)
-	} else if (*blocks)[len(*blocks)-1].BlockHash == vLog.BlockHash && (*blocks)[len(*blocks)-1].BlockNumber == vLog.BlockNumber {
-		(*blocks)[len(*blocks)-1].ForcedBatches = append((*blocks)[len(*blocks)-1].ForcedBatches, forcedBatch)
-	} else {
-		log.Error("Error processing ForceBatch event. BlockHash:", vLog.BlockHash, ". BlockNumber: ", vLog.BlockNumber)
-		return fmt.Errorf("error processing ForceBatch event")
-	}
-	or := Order{
-		Name: ForcedBatchesOrder,
-		Pos:  len((*blocks)[len(*blocks)-1].ForcedBatches) - 1,
-	}
-	(*blocksOrder)[(*blocks)[len(*blocks)-1].BlockHash] = append((*blocksOrder)[(*blocks)[len(*blocks)-1].BlockHash], or)
-	return nil
+	event.Raw = log
+	return event, nil
 }
 
-func (etherMan *Client) sequencedBatchesEvent(ctx context.Context, vLog types.Log, blocks *[]Block, blocksOrder *map[common.Hash][]Order) error {
-	log.Debug("SequenceBatches event detected")
-	sb, err := etherMan.PoE.ParseSequenceBatches(vLog)
-	if err != nil {
-		return err
-	}
-	// Read the tx for this event.
-	tx, isPending, err := etherMan.EthClient.TransactionByHash(ctx, vLog.TxHash)
-	if err != nil {
-		return err
-	} else if isPending {
-		return fmt.Errorf("error tx is still pending. TxHash: %s", tx.Hash().String())
-	}
-	msg, err := tx.AsMessage(types.NewLondonSigner(tx.ChainId()), big.NewInt(0))
-	if err != nil {
-		return err
-	}
-	sequences, err := decodeSequences(tx.Data(), sb.NumBatch, msg.From(), vLog.TxHash, msg.Nonce())
-	if err != nil {
-		return fmt.Errorf("error decoding the sequences: %v", err)
-	}
+func (etherMan *Client) forcedBatchEvent(ctx context.Context, vLog types.Log, blocks *[]Block, blocksOrder *map[common.Hash][]Order) error {
+	log.Debug("ForceBatch event detected")
+	switch etherMan.cfg.L1ChainType {
+	case "Eth":
+		fb, err := etherMan.PoE.ParseForceBatch(vLog)
+		if err != nil {
+			return err
+		}
+		var forcedBatch ForcedBatch
+		forcedBatch.BlockNumber = vLog.BlockNumber
+		forcedBatch.ForcedBatchNumber = fb.ForceBatchNum
+		forcedBatch.GlobalExitRoot = fb.LastGlobalExitRoot
+		// Read the tx for this batch.
+		tx, isPending, err := etherMan.EthClient.TransactionByHash(ctx, vLog.TxHash)
+		if err != nil {
+			return err
+		} else if isPending {
+			return fmt.Errorf("error: tx is still pending. TxHash: %s", tx.Hash().String())
+		}
+		msg, err := tx.AsMessage(types.NewLondonSigner(tx.ChainId()), big.NewInt(0))
+		if err != nil {
+			return err
+		}
+		if fb.Sequencer == msg.From() {
+			txData := tx.Data()
+			// Extract coded txs.
+			// Load contract ABI
+			abi, err := abi.JSON(strings.NewReader(polygonzkevm.PolygonzkevmABI))
+			if err != nil {
+				return err
+			}
 
-	if len(*blocks) == 0 || ((*blocks)[len(*blocks)-1].BlockHash != vLog.BlockHash || (*blocks)[len(*blocks)-1].BlockNumber != vLog.BlockNumber) {
+			// Recover Method from signature and ABI
+			method, err := abi.MethodById(txData[:4])
+			if err != nil {
+				return err
+			}
+
+			// Unpack method inputs
+			data, err := method.Inputs.Unpack(txData[4:])
+			if err != nil {
+				return err
+			}
+			bytedata := data[0].([]byte)
+			forcedBatch.RawTxsData = bytedata
+		} else {
+			forcedBatch.RawTxsData = fb.Transactions
+		}
+		forcedBatch.Sequencer = fb.Sequencer
 		fullBlock, err := etherMan.EthClient.BlockByHash(ctx, vLog.BlockHash)
 		if err != nil {
 			return fmt.Errorf("error getting hashParent. BlockNumber: %d. Error: %w", vLog.BlockNumber, err)
 		}
-		block := prepareBlock(vLog, time.Unix(int64(fullBlock.Time()), 0), fullBlock)
-		block.SequencedBatches = append(block.SequencedBatches, sequences)
-		*blocks = append(*blocks, block)
-	} else if (*blocks)[len(*blocks)-1].BlockHash == vLog.BlockHash && (*blocks)[len(*blocks)-1].BlockNumber == vLog.BlockNumber {
-		(*blocks)[len(*blocks)-1].SequencedBatches = append((*blocks)[len(*blocks)-1].SequencedBatches, sequences)
-	} else {
-		log.Error("Error processing SequencedBatches event. BlockHash:", vLog.BlockHash, ". BlockNumber: ", vLog.BlockNumber)
-		return fmt.Errorf("error processing SequencedBatches event")
+		t := time.Unix(int64(fullBlock.Time()), 0)
+		forcedBatch.ForcedAt = t
+		if len(*blocks) == 0 || ((*blocks)[len(*blocks)-1].BlockHash != vLog.BlockHash || (*blocks)[len(*blocks)-1].BlockNumber != vLog.BlockNumber) {
+			block := prepareBlock(vLog, t, fullBlock)
+			block.ForcedBatches = append(block.ForcedBatches, forcedBatch)
+			*blocks = append(*blocks, block)
+		} else if (*blocks)[len(*blocks)-1].BlockHash == vLog.BlockHash && (*blocks)[len(*blocks)-1].BlockNumber == vLog.BlockNumber {
+			(*blocks)[len(*blocks)-1].ForcedBatches = append((*blocks)[len(*blocks)-1].ForcedBatches, forcedBatch)
+		} else {
+			log.Error("Error processing ForceBatch event. BlockHash:", vLog.BlockHash, ". BlockNumber: ", vLog.BlockNumber)
+			return fmt.Errorf("error processing ForceBatch event")
+		}
+		or := Order{
+			Name: ForcedBatchesOrder,
+			Pos:  len((*blocks)[len(*blocks)-1].ForcedBatches) - 1,
+		}
+		(*blocksOrder)[(*blocks)[len(*blocks)-1].BlockHash] = append((*blocksOrder)[(*blocks)[len(*blocks)-1].BlockHash], or)
+		return nil
+	case "Tron":
+		fb, err := etherMan.TronParseForceBatch(vLog)
+		if err != nil {
+			return err
+		}
+		var forcedBatch ForcedBatch
+		forcedBatch.BlockNumber = vLog.BlockNumber
+		forcedBatch.ForcedBatchNumber = fb.ForceBatchNum
+		forcedBatch.GlobalExitRoot = fb.LastGlobalExitRoot
+		// Read the tx for this batch.
+		tx, isPending, err := etherMan.TronTransactionByHash(vLog.TxHash)
+		if err != nil {
+			return err
+		} else if isPending {
+			return fmt.Errorf("error: tx is still pending. TxHash: %s", tx.Hash().String())
+		}
+		msg, err := tx.AsMessage(types.NewLondonSigner(tx.ChainId()), big.NewInt(0))
+		if err != nil {
+			return err
+		}
+		if fb.Sequencer == msg.From() {
+			txData := tx.Data()
+			// Extract coded txs.
+			// Load contract ABI
+			abi, err := abi.JSON(strings.NewReader(polygonzkevm.PolygonzkevmABI))
+			if err != nil {
+				return err
+			}
+
+			// Recover Method from signature and ABI
+			method, err := abi.MethodById(txData[:4])
+			if err != nil {
+				return err
+			}
+
+			// Unpack method inputs
+			data, err := method.Inputs.Unpack(txData[4:])
+			if err != nil {
+				return err
+			}
+			bytedata := data[0].([]byte)
+			forcedBatch.RawTxsData = bytedata
+		} else {
+			forcedBatch.RawTxsData = fb.Transactions
+		}
+		forcedBatch.Sequencer = fb.Sequencer
+		fullBlock, err := etherMan.TronBlockByHash(vLog.BlockHash)
+		if err != nil {
+			return fmt.Errorf("error getting hashParent. BlockNumber: %d. Error: %w", vLog.BlockNumber, err)
+		}
+		t := time.Unix(int64(fullBlock.Time()), 0)
+		forcedBatch.ForcedAt = t
+		if len(*blocks) == 0 || ((*blocks)[len(*blocks)-1].BlockHash != vLog.BlockHash || (*blocks)[len(*blocks)-1].BlockNumber != vLog.BlockNumber) {
+			block := prepareBlock(vLog, t, fullBlock)
+			block.ForcedBatches = append(block.ForcedBatches, forcedBatch)
+			*blocks = append(*blocks, block)
+		} else if (*blocks)[len(*blocks)-1].BlockHash == vLog.BlockHash && (*blocks)[len(*blocks)-1].BlockNumber == vLog.BlockNumber {
+			(*blocks)[len(*blocks)-1].ForcedBatches = append((*blocks)[len(*blocks)-1].ForcedBatches, forcedBatch)
+		} else {
+			log.Error("Error processing ForceBatch event. BlockHash:", vLog.BlockHash, ". BlockNumber: ", vLog.BlockNumber)
+			return fmt.Errorf("error processing ForceBatch event")
+		}
+		or := Order{
+			Name: ForcedBatchesOrder,
+			Pos:  len((*blocks)[len(*blocks)-1].ForcedBatches) - 1,
+		}
+		(*blocksOrder)[(*blocks)[len(*blocks)-1].BlockHash] = append((*blocksOrder)[(*blocks)[len(*blocks)-1].BlockHash], or)
+
+		return nil
 	}
-	or := Order{
-		Name: SequenceBatchesOrder,
-		Pos:  len((*blocks)[len(*blocks)-1].SequencedBatches) - 1,
+	return errors.New("L1ChainType should be 'Tron' or 'Eth'")
+}
+
+// TronParseSequenceBatches is a log parse operation binding the contract event 0x303446e6a8cb73c83dff421c0b1d5e5ce0719dab1bff13660fc254e58cc17fce.
+//
+// Solidity: event SequenceBatches(uint64 indexed numBatch)
+func (etherMan *Client) TronParseSequenceBatches(log types.Log) (*polygonzkevm.PolygonzkevmSequenceBatches, error) {
+	event := new(polygonzkevm.PolygonzkevmSequenceBatches)
+	polygonzkevmABI, err := abi.JSON(strings.NewReader(polygonzkevm.PolygonzkevmABI))
+	if err != nil {
+		return nil, err
 	}
-	(*blocksOrder)[(*blocks)[len(*blocks)-1].BlockHash] = append((*blocksOrder)[(*blocks)[len(*blocks)-1].BlockHash], or)
-	return nil
+	if err := etherMan.UnpackLog(polygonzkevmABI, event, "SequenceBatches", log); err != nil {
+		return nil, err
+	}
+	event.Raw = log
+	return event, nil
+}
+
+// UnpackLog unpacks a retrieved log into the provided output structure.
+func (etherMan *Client) UnpackLog(contractABI abi.ABI, out interface{}, event string, log types.Log) error {
+	if log.Topics[0] != contractABI.Events[event].ID {
+		return fmt.Errorf("event signature mismatch")
+	}
+	if len(log.Data) > 0 {
+		if err := contractABI.UnpackIntoInterface(out, event, log.Data); err != nil {
+			return err
+		}
+	}
+	var indexed abi.Arguments
+	for _, arg := range contractABI.Events[event].Inputs {
+		if arg.Indexed {
+			indexed = append(indexed, arg)
+		}
+	}
+	return abi.ParseTopics(out, indexed, log.Topics[1:])
+}
+
+type rpcTransaction struct {
+	tx *types.Transaction
+	txExtraInfo
+}
+
+type txExtraInfo struct {
+	BlockNumber *string         `json:"blockNumber,omitempty"`
+	BlockHash   *common.Hash    `json:"blockHash,omitempty"`
+	From        *common.Address `json:"from,omitempty"`
+}
+
+func UnmarshalRPCTxJSON(tx *rpcTransaction, msg []byte) (*types.Transaction, error) {
+	if err := json.Unmarshal(msg, &tx.tx); err != nil {
+		return nil, err
+	}
+	return tx.tx, json.Unmarshal(msg, &tx.txExtraInfo)
+}
+
+type FilterRPCTxResponse struct {
+	tron.BaseQueryParam
+	Result rpcTransaction `json:result`
+}
+
+// TronTransactionByHash returns the transaction with the given hash.
+func (etherMan *Client) TronTransactionByHash(hash common.Hash) (tx *types.Transaction, isPending bool, err error) {
+	var params = []string{hash.Hex()}
+	queryFilter := tron.FilterOtherParams{
+		BaseQueryParam: tron.GetDefaultBaseParm(),
+		Method:         tron.GetTransactionByHash,
+		Params:         params,
+	}
+	result, err := QueryTronInfo(etherMan.cfg.TronGrid.Url, etherMan.cfg.TronGrid.ApiKey, queryFilter)
+	if errors.Is(err, ethereum.NotFound) {
+		return nil, false, ethereum.NotFound
+	} else if err != nil {
+		return nil, false, err
+	}
+	var transaction FilterRPCTxResponse
+	if err := json.Unmarshal(result, &transaction); err != nil {
+		return nil, false, err
+	}
+	var rpcTransactionJson *rpcTransaction
+	tx, err = UnmarshalRPCTxJSON(rpcTransactionJson, result)
+	if err != nil {
+		return nil, false, err
+	}
+	return tx, transaction.Result.BlockNumber == nil, nil
+}
+
+type rpcBlock struct {
+	Hash         common.Hash      `json:"hash"`
+	Transactions []rpcTransaction `json:"transactions"`
+	UncleHashes  []common.Hash    `json:"uncles"`
+}
+
+// TronBlockByHash returns the given full block.
+//
+// Note that loading full blocks requires two requests. Use HeaderByHash
+// if you don't need all transactions or uncle headers.
+func (etherMan *Client) TronBlockByHash(hash common.Hash) (*types.Block, error) {
+	var params = []string{hash.Hex()}
+	params = append(params, "true") //set true to get full block
+	queryFilter := tron.FilterOtherParams{
+		BaseQueryParam: tron.GetDefaultBaseParm(),
+		Method:         tron.BlockByHash,
+		Params:         params,
+	}
+	raw, err := QueryTronInfo(etherMan.cfg.TronGrid.Url, etherMan.cfg.TronGrid.ApiKey, queryFilter)
+	if err != nil {
+		return nil, err
+	}
+	// Decode header and transactions.
+	var head *types.Header
+	var body rpcBlock
+	if err := json.Unmarshal(raw, &head); err != nil {
+		return nil, err
+	}
+	if err := json.Unmarshal(raw, &body); err != nil {
+		return nil, err
+	}
+	// Quick-verify transaction and uncle lists. This mostly helps with debugging the server.
+	if head.UncleHash == types.EmptyUncleHash && len(body.UncleHashes) > 0 {
+		return nil, fmt.Errorf("server returned non-empty uncle list but block header indicates no uncles")
+	}
+	if head.UncleHash != types.EmptyUncleHash && len(body.UncleHashes) == 0 {
+		return nil, fmt.Errorf("server returned empty uncle list but block header indicates uncles")
+	}
+	if head.TxHash == types.EmptyRootHash && len(body.Transactions) > 0 {
+		return nil, fmt.Errorf("server returned non-empty transaction list but block header indicates no transactions")
+	}
+	if head.TxHash != types.EmptyRootHash && len(body.Transactions) == 0 {
+		return nil, fmt.Errorf("server returned empty transaction list but block header indicates transactions")
+	}
+	// Load uncles because they are not included in the block response.
+	var uncles []*types.Header //DO NOTHING for Tron
+	// Fill the sender cache of transactions in the block.
+	txs := make([]*types.Transaction, len(body.Transactions))
+	for i, tx := range body.Transactions {
+		txs[i] = tx.tx
+	}
+	return types.NewBlockWithHeader(head).WithBody(txs, uncles), nil
+}
+func (etherMan *Client) sequencedBatchesEvent(ctx context.Context, vLog types.Log, blocks *[]Block, blocksOrder *map[common.Hash][]Order) error {
+	log.Debug("SequenceBatches event detected")
+	switch etherMan.cfg.L1ChainType {
+	case "Eth":
+		sb, err := etherMan.PoE.ParseSequenceBatches(vLog)
+		if err != nil {
+			return err
+		}
+		// Read the tx for this event.
+		tx, isPending, err := etherMan.EthClient.TransactionByHash(ctx, vLog.TxHash)
+		if err != nil {
+			return err
+		} else if isPending {
+			return fmt.Errorf("error tx is still pending. TxHash: %s", tx.Hash().String())
+		}
+		msg, err := tx.AsMessage(types.NewLondonSigner(tx.ChainId()), big.NewInt(0))
+		if err != nil {
+			return err
+		}
+		sequences, err := decodeSequences(tx.Data(), sb.NumBatch, msg.From(), vLog.TxHash, msg.Nonce())
+		if err != nil {
+			return fmt.Errorf("error decoding the sequences: %v", err)
+		}
+
+		if len(*blocks) == 0 || ((*blocks)[len(*blocks)-1].BlockHash != vLog.BlockHash || (*blocks)[len(*blocks)-1].BlockNumber != vLog.BlockNumber) {
+			fullBlock, err := etherMan.EthClient.BlockByHash(ctx, vLog.BlockHash)
+			if err != nil {
+				return fmt.Errorf("error getting hashParent. BlockNumber: %d. Error: %w", vLog.BlockNumber, err)
+			}
+			block := prepareBlock(vLog, time.Unix(int64(fullBlock.Time()), 0), fullBlock)
+			block.SequencedBatches = append(block.SequencedBatches, sequences)
+			*blocks = append(*blocks, block)
+		} else if (*blocks)[len(*blocks)-1].BlockHash == vLog.BlockHash && (*blocks)[len(*blocks)-1].BlockNumber == vLog.BlockNumber {
+			(*blocks)[len(*blocks)-1].SequencedBatches = append((*blocks)[len(*blocks)-1].SequencedBatches, sequences)
+		} else {
+			log.Error("Error processing SequencedBatches event. BlockHash:", vLog.BlockHash, ". BlockNumber: ", vLog.BlockNumber)
+			return fmt.Errorf("error processing SequencedBatches event")
+		}
+		or := Order{
+			Name: SequenceBatchesOrder,
+			Pos:  len((*blocks)[len(*blocks)-1].SequencedBatches) - 1,
+		}
+		(*blocksOrder)[(*blocks)[len(*blocks)-1].BlockHash] = append((*blocksOrder)[(*blocks)[len(*blocks)-1].BlockHash], or)
+		return nil
+	case "Tron":
+		sb, err := etherMan.TronParseSequenceBatches(vLog)
+		if err != nil {
+			return err
+		}
+		// Read the tx for this event.
+		tx, isPending, err := etherMan.TronTransactionByHash(vLog.TxHash)
+		if err != nil {
+			return err
+		} else if isPending {
+			return fmt.Errorf("error tx is still pending. TxHash: %s", tx.Hash().String())
+		}
+		msg, err := tx.AsMessage(types.NewLondonSigner(tx.ChainId()), big.NewInt(0))
+		if err != nil {
+			return err
+		}
+		sequences, err := decodeSequences(tx.Data(), sb.NumBatch, msg.From(), vLog.TxHash, msg.Nonce())
+		if err != nil {
+			return fmt.Errorf("error decoding the sequences: %v", err)
+		}
+		if len(*blocks) == 0 || ((*blocks)[len(*blocks)-1].BlockHash != vLog.BlockHash || (*blocks)[len(*blocks)-1].BlockNumber != vLog.BlockNumber) {
+			fullBlock, err := etherMan.TronBlockByHash(vLog.BlockHash)
+			if err != nil {
+				return fmt.Errorf("error getting hashParent. BlockNumber: %d. Error: %w", vLog.BlockNumber, err)
+			}
+			block := prepareBlock(vLog, time.Unix(int64(fullBlock.Time()), 0), fullBlock)
+			block.SequencedBatches = append(block.SequencedBatches, sequences)
+			*blocks = append(*blocks, block)
+		} else if (*blocks)[len(*blocks)-1].BlockHash == vLog.BlockHash && (*blocks)[len(*blocks)-1].BlockNumber == vLog.BlockNumber {
+			(*blocks)[len(*blocks)-1].SequencedBatches = append((*blocks)[len(*blocks)-1].SequencedBatches, sequences)
+		} else {
+			log.Error("Error processing SequencedBatches event. BlockHash:", vLog.BlockHash, ". BlockNumber: ", vLog.BlockNumber)
+			return fmt.Errorf("error processing SequencedBatches event")
+		}
+		or := Order{
+			Name: SequenceBatchesOrder,
+			Pos:  len((*blocks)[len(*blocks)-1].SequencedBatches) - 1,
+		}
+		(*blocksOrder)[(*blocks)[len(*blocks)-1].BlockHash] = append((*blocksOrder)[(*blocks)[len(*blocks)-1].BlockHash], or)
+		return nil
+	}
+	return errors.New("L1ChainType should be 'Tron' or 'Eth'")
 }
 
 func decodeSequences(txData []byte, lastBatchNumber uint64, sequencer common.Address, txHash common.Hash, nonce uint64) ([]SequencedBatch, error) {
@@ -955,85 +1254,200 @@ func decodeSequences(txData []byte, lastBatchNumber uint64, sequencer common.Add
 	return sequencedBatches, nil
 }
 
+// TronParseVerifyBatchesTrustedAggregator is a log parse operation binding the contract event 0xcb339b570a7f0b25afa7333371ff11192092a0aeace12b671f4c212f2815c6fe.
+//
+// Solidity: event VerifyBatchesTrustedAggregator(uint64 indexed numBatch, bytes32 stateRoot, address indexed aggregator)
+func (etherMan *Client) TronParseVerifyBatchesTrustedAggregator(log types.Log) (*polygonzkevm.PolygonzkevmVerifyBatchesTrustedAggregator, error) {
+	event := new(polygonzkevm.PolygonzkevmVerifyBatchesTrustedAggregator)
+	polygonzkevmABI, err := abi.JSON(strings.NewReader(polygonzkevm.PolygonzkevmABI))
+	if err != nil {
+		return nil, err
+	}
+	if err := etherMan.UnpackLog(polygonzkevmABI, event, "VerifyBatchesTrustedAggregator", log); err != nil {
+		return nil, err
+	}
+	event.Raw = log
+	return event, nil
+}
 func (etherMan *Client) verifyBatchesTrustedAggregatorEvent(ctx context.Context, vLog types.Log, blocks *[]Block, blocksOrder *map[common.Hash][]Order) error {
 	log.Debug("TrustedVerifyBatches event detected")
-	vb, err := etherMan.PoE.ParseVerifyBatchesTrustedAggregator(vLog)
-	if err != nil {
-		return err
-	}
-	var trustedVerifyBatch VerifiedBatch
-	trustedVerifyBatch.BlockNumber = vLog.BlockNumber
-	trustedVerifyBatch.BatchNumber = vb.NumBatch
-	trustedVerifyBatch.TxHash = vLog.TxHash
-	trustedVerifyBatch.StateRoot = vb.StateRoot
-	trustedVerifyBatch.Aggregator = vb.Aggregator
-
-	if len(*blocks) == 0 || ((*blocks)[len(*blocks)-1].BlockHash != vLog.BlockHash || (*blocks)[len(*blocks)-1].BlockNumber != vLog.BlockNumber) {
-		fullBlock, err := etherMan.EthClient.BlockByHash(ctx, vLog.BlockHash)
+	switch etherMan.cfg.L1ChainType {
+	case "Eth":
+		vb, err := etherMan.PoE.ParseVerifyBatchesTrustedAggregator(vLog)
 		if err != nil {
-			return fmt.Errorf("error getting hashParent. BlockNumber: %d. Error: %w", vLog.BlockNumber, err)
+			return err
 		}
-		block := prepareBlock(vLog, time.Unix(int64(fullBlock.Time()), 0), fullBlock)
-		block.VerifiedBatches = append(block.VerifiedBatches, trustedVerifyBatch)
-		*blocks = append(*blocks, block)
-	} else if (*blocks)[len(*blocks)-1].BlockHash == vLog.BlockHash && (*blocks)[len(*blocks)-1].BlockNumber == vLog.BlockNumber {
-		(*blocks)[len(*blocks)-1].VerifiedBatches = append((*blocks)[len(*blocks)-1].VerifiedBatches, trustedVerifyBatch)
-	} else {
-		log.Error("Error processing trustedVerifyBatch event. BlockHash:", vLog.BlockHash, ". BlockNumber: ", vLog.BlockNumber)
-		return fmt.Errorf("error processing trustedVerifyBatch event")
+		var trustedVerifyBatch VerifiedBatch
+		trustedVerifyBatch.BlockNumber = vLog.BlockNumber
+		trustedVerifyBatch.BatchNumber = vb.NumBatch
+		trustedVerifyBatch.TxHash = vLog.TxHash
+		trustedVerifyBatch.StateRoot = vb.StateRoot
+		trustedVerifyBatch.Aggregator = vb.Aggregator
+
+		if len(*blocks) == 0 || ((*blocks)[len(*blocks)-1].BlockHash != vLog.BlockHash || (*blocks)[len(*blocks)-1].BlockNumber != vLog.BlockNumber) {
+			fullBlock, err := etherMan.EthClient.BlockByHash(ctx, vLog.BlockHash)
+			if err != nil {
+				return fmt.Errorf("error getting hashParent. BlockNumber: %d. Error: %w", vLog.BlockNumber, err)
+			}
+			block := prepareBlock(vLog, time.Unix(int64(fullBlock.Time()), 0), fullBlock)
+			block.VerifiedBatches = append(block.VerifiedBatches, trustedVerifyBatch)
+			*blocks = append(*blocks, block)
+		} else if (*blocks)[len(*blocks)-1].BlockHash == vLog.BlockHash && (*blocks)[len(*blocks)-1].BlockNumber == vLog.BlockNumber {
+			(*blocks)[len(*blocks)-1].VerifiedBatches = append((*blocks)[len(*blocks)-1].VerifiedBatches, trustedVerifyBatch)
+		} else {
+			log.Error("Error processing trustedVerifyBatch event. BlockHash:", vLog.BlockHash, ". BlockNumber: ", vLog.BlockNumber)
+			return fmt.Errorf("error processing trustedVerifyBatch event")
+		}
+		or := Order{
+			Name: TrustedVerifyBatchOrder,
+			Pos:  len((*blocks)[len(*blocks)-1].VerifiedBatches) - 1,
+		}
+		(*blocksOrder)[(*blocks)[len(*blocks)-1].BlockHash] = append((*blocksOrder)[(*blocks)[len(*blocks)-1].BlockHash], or)
+		return nil
+	case "Tron":
+		vb, err := etherMan.TronParseVerifyBatchesTrustedAggregator(vLog)
+		if err != nil {
+			return err
+		}
+		var trustedVerifyBatch VerifiedBatch
+		trustedVerifyBatch.BlockNumber = vLog.BlockNumber
+		trustedVerifyBatch.BatchNumber = vb.NumBatch
+		trustedVerifyBatch.TxHash = vLog.TxHash
+		trustedVerifyBatch.StateRoot = vb.StateRoot
+		trustedVerifyBatch.Aggregator = vb.Aggregator
+
+		if len(*blocks) == 0 || ((*blocks)[len(*blocks)-1].BlockHash != vLog.BlockHash || (*blocks)[len(*blocks)-1].BlockNumber != vLog.BlockNumber) {
+			fullBlock, err := etherMan.TronBlockByHash(vLog.BlockHash)
+			if err != nil {
+				return fmt.Errorf("error getting hashParent. BlockNumber: %d. Error: %w", vLog.BlockNumber, err)
+			}
+			block := prepareBlock(vLog, time.Unix(int64(fullBlock.Time()), 0), fullBlock)
+			block.VerifiedBatches = append(block.VerifiedBatches, trustedVerifyBatch)
+			*blocks = append(*blocks, block)
+		} else if (*blocks)[len(*blocks)-1].BlockHash == vLog.BlockHash && (*blocks)[len(*blocks)-1].BlockNumber == vLog.BlockNumber {
+			(*blocks)[len(*blocks)-1].VerifiedBatches = append((*blocks)[len(*blocks)-1].VerifiedBatches, trustedVerifyBatch)
+		} else {
+			log.Error("Error processing trustedVerifyBatch event. BlockHash:", vLog.BlockHash, ". BlockNumber: ", vLog.BlockNumber)
+			return fmt.Errorf("error processing trustedVerifyBatch event")
+		}
+		or := Order{
+			Name: TrustedVerifyBatchOrder,
+			Pos:  len((*blocks)[len(*blocks)-1].VerifiedBatches) - 1,
+		}
+		(*blocksOrder)[(*blocks)[len(*blocks)-1].BlockHash] = append((*blocksOrder)[(*blocks)[len(*blocks)-1].BlockHash], or)
+
+		return nil
 	}
-	or := Order{
-		Name: TrustedVerifyBatchOrder,
-		Pos:  len((*blocks)[len(*blocks)-1].VerifiedBatches) - 1,
+	return errors.New("L1ChainType should be 'Tron' or 'Eth'")
+}
+
+// TronParseSequenceForceBatches is a log parse operation binding the contract event 0x648a61dd2438f072f5a1960939abd30f37aea80d2e94c9792ad142d3e0a490a4.
+//
+// Solidity: event SequenceForceBatches(uint64 indexed numBatch)
+func (etherMan *Client) TronParseSequenceForceBatches(log types.Log) (*polygonzkevm.PolygonzkevmSequenceForceBatches, error) {
+	event := new(polygonzkevm.PolygonzkevmSequenceForceBatches)
+	polygonzkevmABI, err := abi.JSON(strings.NewReader(polygonzkevm.PolygonzkevmABI))
+	if err != nil {
+		return nil, err
 	}
-	(*blocksOrder)[(*blocks)[len(*blocks)-1].BlockHash] = append((*blocksOrder)[(*blocks)[len(*blocks)-1].BlockHash], or)
-	return nil
+	if err := etherMan.UnpackLog(polygonzkevmABI, event, "SequenceForceBatches", log); err != nil {
+		return nil, err
+	}
+	event.Raw = log
+	return event, nil
 }
 
 func (etherMan *Client) forceSequencedBatchesEvent(ctx context.Context, vLog types.Log, blocks *[]Block, blocksOrder *map[common.Hash][]Order) error {
 	log.Debug("SequenceForceBatches event detect")
-	fsb, err := etherMan.PoE.ParseSequenceForceBatches(vLog)
-	if err != nil {
-		return err
-	}
+	switch etherMan.cfg.L1ChainType {
+	case "Eth":
+		fsb, err := etherMan.PoE.ParseSequenceForceBatches(vLog)
+		if err != nil {
+			return err
+		}
 
-	// Read the tx for this batch.
-	tx, isPending, err := etherMan.EthClient.TransactionByHash(ctx, vLog.TxHash)
-	if err != nil {
-		return err
-	} else if isPending {
-		return fmt.Errorf("error: tx is still pending. TxHash: %s", tx.Hash().String())
-	}
-	msg, err := tx.AsMessage(types.NewLondonSigner(tx.ChainId()), big.NewInt(0))
-	if err != nil {
-		return err
-	}
-	fullBlock, err := etherMan.EthClient.BlockByHash(ctx, vLog.BlockHash)
-	if err != nil {
-		return fmt.Errorf("error getting hashParent. BlockNumber: %d. Error: %w", vLog.BlockNumber, err)
-	}
-	sequencedForceBatch, err := decodeSequencedForceBatches(tx.Data(), fsb.NumBatch, msg.From(), vLog.TxHash, fullBlock, msg.Nonce())
-	if err != nil {
-		return err
-	}
+		// Read the tx for this batch.
+		tx, isPending, err := etherMan.EthClient.TransactionByHash(ctx, vLog.TxHash)
+		if err != nil {
+			return err
+		} else if isPending {
+			return fmt.Errorf("error: tx is still pending. TxHash: %s", tx.Hash().String())
+		}
+		msg, err := tx.AsMessage(types.NewLondonSigner(tx.ChainId()), big.NewInt(0))
+		if err != nil {
+			return err
+		}
+		fullBlock, err := etherMan.EthClient.BlockByHash(ctx, vLog.BlockHash)
+		if err != nil {
+			return fmt.Errorf("error getting hashParent. BlockNumber: %d. Error: %w", vLog.BlockNumber, err)
+		}
+		sequencedForceBatch, err := decodeSequencedForceBatches(tx.Data(), fsb.NumBatch, msg.From(), vLog.TxHash, fullBlock, msg.Nonce())
+		if err != nil {
+			return err
+		}
 
-	if len(*blocks) == 0 || ((*blocks)[len(*blocks)-1].BlockHash != vLog.BlockHash || (*blocks)[len(*blocks)-1].BlockNumber != vLog.BlockNumber) {
-		block := prepareBlock(vLog, time.Unix(int64(fullBlock.Time()), 0), fullBlock)
-		block.SequencedForceBatches = append(block.SequencedForceBatches, sequencedForceBatch)
-		*blocks = append(*blocks, block)
-	} else if (*blocks)[len(*blocks)-1].BlockHash == vLog.BlockHash && (*blocks)[len(*blocks)-1].BlockNumber == vLog.BlockNumber {
-		(*blocks)[len(*blocks)-1].SequencedForceBatches = append((*blocks)[len(*blocks)-1].SequencedForceBatches, sequencedForceBatch)
-	} else {
-		log.Error("Error processing ForceSequencedBatches event. BlockHash:", vLog.BlockHash, ". BlockNumber: ", vLog.BlockNumber)
-		return fmt.Errorf("error processing ForceSequencedBatches event")
-	}
-	or := Order{
-		Name: SequenceForceBatchesOrder,
-		Pos:  len((*blocks)[len(*blocks)-1].SequencedForceBatches) - 1,
-	}
-	(*blocksOrder)[(*blocks)[len(*blocks)-1].BlockHash] = append((*blocksOrder)[(*blocks)[len(*blocks)-1].BlockHash], or)
+		if len(*blocks) == 0 || ((*blocks)[len(*blocks)-1].BlockHash != vLog.BlockHash || (*blocks)[len(*blocks)-1].BlockNumber != vLog.BlockNumber) {
+			block := prepareBlock(vLog, time.Unix(int64(fullBlock.Time()), 0), fullBlock)
+			block.SequencedForceBatches = append(block.SequencedForceBatches, sequencedForceBatch)
+			*blocks = append(*blocks, block)
+		} else if (*blocks)[len(*blocks)-1].BlockHash == vLog.BlockHash && (*blocks)[len(*blocks)-1].BlockNumber == vLog.BlockNumber {
+			(*blocks)[len(*blocks)-1].SequencedForceBatches = append((*blocks)[len(*blocks)-1].SequencedForceBatches, sequencedForceBatch)
+		} else {
+			log.Error("Error processing ForceSequencedBatches event. BlockHash:", vLog.BlockHash, ". BlockNumber: ", vLog.BlockNumber)
+			return fmt.Errorf("error processing ForceSequencedBatches event")
+		}
+		or := Order{
+			Name: SequenceForceBatchesOrder,
+			Pos:  len((*blocks)[len(*blocks)-1].SequencedForceBatches) - 1,
+		}
+		(*blocksOrder)[(*blocks)[len(*blocks)-1].BlockHash] = append((*blocksOrder)[(*blocks)[len(*blocks)-1].BlockHash], or)
 
-	return nil
+		return nil
+	case "Tron":
+		fsb, err := etherMan.TronParseSequenceForceBatches(vLog)
+		if err != nil {
+			return err
+		}
+
+		// Read the tx for this batch.
+		tx, isPending, err := etherMan.TronTransactionByHash(vLog.TxHash)
+		if err != nil {
+			return err
+		} else if isPending {
+			return fmt.Errorf("error: tx is still pending. TxHash: %s", tx.Hash().String())
+		}
+		msg, err := tx.AsMessage(types.NewLondonSigner(tx.ChainId()), big.NewInt(0))
+		if err != nil {
+			return err
+		}
+		fullBlock, err := etherMan.TronBlockByHash(vLog.BlockHash)
+		if err != nil {
+			return fmt.Errorf("error getting hashParent. BlockNumber: %d. Error: %w", vLog.BlockNumber, err)
+		}
+		sequencedForceBatch, err := decodeSequencedForceBatches(tx.Data(), fsb.NumBatch, msg.From(), vLog.TxHash, fullBlock, msg.Nonce())
+		if err != nil {
+			return err
+		}
+
+		if len(*blocks) == 0 || ((*blocks)[len(*blocks)-1].BlockHash != vLog.BlockHash || (*blocks)[len(*blocks)-1].BlockNumber != vLog.BlockNumber) {
+			block := prepareBlock(vLog, time.Unix(int64(fullBlock.Time()), 0), fullBlock)
+			block.SequencedForceBatches = append(block.SequencedForceBatches, sequencedForceBatch)
+			*blocks = append(*blocks, block)
+		} else if (*blocks)[len(*blocks)-1].BlockHash == vLog.BlockHash && (*blocks)[len(*blocks)-1].BlockNumber == vLog.BlockNumber {
+			(*blocks)[len(*blocks)-1].SequencedForceBatches = append((*blocks)[len(*blocks)-1].SequencedForceBatches, sequencedForceBatch)
+		} else {
+			log.Error("Error processing ForceSequencedBatches event. BlockHash:", vLog.BlockHash, ". BlockNumber: ", vLog.BlockNumber)
+			return fmt.Errorf("error processing ForceSequencedBatches event")
+		}
+		or := Order{
+			Name: SequenceForceBatchesOrder,
+			Pos:  len((*blocks)[len(*blocks)-1].SequencedForceBatches) - 1,
+		}
+		(*blocksOrder)[(*blocks)[len(*blocks)-1].BlockHash] = append((*blocksOrder)[(*blocks)[len(*blocks)-1].BlockHash], or)
+
+		return nil
+	}
+	return errors.New("L1ChainType should be 'Tron' or 'Eth'")
 }
 
 func decodeSequencedForceBatches(txData []byte, lastBatchNumber uint64, sequencer common.Address, txHash common.Hash, block *types.Block, nonce uint64) ([]SequencedForceBatch, error) {
@@ -1100,10 +1514,40 @@ func hash(data ...[32]byte) [32]byte {
 	return res
 }
 
+// TronHeaderByNumber returns a block header from the current canonical chain. If number is
+// nil, the latest known header is returned.
+func (etherMan *Client) TronHeaderByNumber(number *big.Int) (*types.Header, error) {
+	var head *types.Header
+	var params = []string{hexutil.EncodeBig(number)}
+	params = append(params, "true") //set true to get full block
+	queryFilter := tron.FilterOtherParams{
+		BaseQueryParam: tron.GetDefaultBaseParm(),
+		Method:         tron.HeaderByNumber,
+		Params:         params,
+	}
+	raw, err := QueryTronInfo(etherMan.cfg.TronGrid.Url, etherMan.cfg.TronGrid.ApiKey, queryFilter)
+	if err != nil {
+		return nil, err
+	}
+	if err := json.Unmarshal(raw, &head); err != nil {
+		return nil, err
+	}
+	if err == nil && head == nil {
+		err = ethereum.NotFound
+	}
+	return head, err
+}
+
 // HeaderByNumber returns a block header from the current canonical chain. If number is
 // nil, the latest known header is returned.
 func (etherMan *Client) HeaderByNumber(ctx context.Context, number *big.Int) (*types.Header, error) {
-	return etherMan.EthClient.HeaderByNumber(ctx, number)
+	switch etherMan.cfg.L1ChainType {
+	case "Eth":
+		return etherMan.EthClient.HeaderByNumber(ctx, number)
+	case "Tron":
+		return etherMan.TronHeaderByNumber(number)
+	}
+	return nil, errors.New("L1ChainType should be 'Tron' or 'Eth'")
 }
 
 // EthBlockByNumber function retrieves the ethereum block information by ethereum block number.
