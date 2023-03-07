@@ -19,6 +19,7 @@ import (
 	"github.com/0xPolygonHermez/zkevm-node/gasprice"
 	"github.com/0xPolygonHermez/zkevm-node/jsonrpc"
 	"github.com/0xPolygonHermez/zkevm-node/log"
+	"github.com/0xPolygonHermez/zkevm-node/merkletree"
 	"github.com/0xPolygonHermez/zkevm-node/metrics"
 	"github.com/0xPolygonHermez/zkevm-node/pool"
 	"github.com/0xPolygonHermez/zkevm-node/pool/pgpoolstorage"
@@ -26,6 +27,7 @@ import (
 	"github.com/0xPolygonHermez/zkevm-node/sequencer/broadcast"
 	"github.com/0xPolygonHermez/zkevm-node/sequencer/broadcast/pb"
 	"github.com/0xPolygonHermez/zkevm-node/state"
+	"github.com/0xPolygonHermez/zkevm-node/state/runtime/executor"
 	"github.com/0xPolygonHermez/zkevm-node/synchronizer"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/jackc/pgx/v4/pgxpool"
@@ -274,9 +276,9 @@ func waitSignal(cancelFuncs []context.CancelFunc) {
 
 func newState(ctx context.Context, c *config.Config, l2ChainID uint64, currentForkID uint64, forkIDIntervals []state.ForkIDInterval, sqlDB *pgxpool.Pool) *state.State {
 	stateDb := state.NewPostgresStorage(sqlDB)
-	//executorClient, _, _ := executor.NewExecutorClient(ctx, c.Executor) //TODO ZYD. REMOVE FOR TEST
-	//stateDBClient, _, _ := merkletree.NewMTDBServiceClient(ctx, c.MTClient) //TODO ZYD. REMOVE FOR TEST
-	//stateTree := merkletree.NewStateTree(stateDBClient) //TODO ZYD. REMOVE FOR TEST
+	executorClient, _, _ := executor.NewExecutorClient(ctx, c.Executor)
+	stateDBClient, _, _ := merkletree.NewMTDBServiceClient(ctx, c.MTClient)
+	stateTree := merkletree.NewStateTree(stateDBClient)
 
 	stateCfg := state.Config{
 		MaxCumulativeGasUsed: c.Sequencer.MaxCumulativeGasUsed,
@@ -285,8 +287,7 @@ func newState(ctx context.Context, c *config.Config, l2ChainID uint64, currentFo
 		ForkIDIntervals:      forkIDIntervals,
 	}
 
-	//st := state.NewState(stateCfg, stateDb, executorClient, stateTree) //TODO ZYD. REMOVE FOR TEST
-	st := state.NewState(stateCfg, stateDb, nil, nil) //TODO ZYD. FOR TEST
+	st := state.NewState(stateCfg, stateDb, executorClient, stateTree)
 	return st
 }
 

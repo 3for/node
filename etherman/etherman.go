@@ -38,6 +38,7 @@ import (
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
+	"github.com/ethereum/go-ethereum/rpc"
 	"golang.org/x/crypto/sha3"
 )
 
@@ -528,6 +529,7 @@ func (etherMan *Client) readTronEvents(ctx context.Context, filterLogs tron.NewF
 }
 
 func (etherMan *Client) processEvent(ctx context.Context, vLog types.Log, blocks *[]Block, blocksOrder *map[common.Hash][]Order) error {
+	fmt.Println(vLog.Topics[0]) //TODO. ZYD. DEBUG
 	switch vLog.Topics[0] {
 	case sequencedBatchesEventSignatureHash:
 		return etherMan.sequencedBatchesEvent(ctx, vLog, blocks, blocksOrder)
@@ -1675,10 +1677,29 @@ func TronHeader2EthHeader(tronHeader *TronHeader) (*types.Header, error) {
 	return &ethHeader, nil
 }
 
+func toBlockNumArg(number *big.Int) string {
+	if number == nil {
+		return "latest"
+	}
+	pending := big.NewInt(-1)
+	if number.Cmp(pending) == 0 {
+		return "pending"
+	}
+	finalized := big.NewInt(int64(rpc.FinalizedBlockNumber))
+	if number.Cmp(finalized) == 0 {
+		return "finalized"
+	}
+	safe := big.NewInt(int64(rpc.SafeBlockNumber))
+	if number.Cmp(safe) == 0 {
+		return "safe"
+	}
+	return hexutil.EncodeBig(number)
+}
+
 // TronHeaderByNumber returns a block header from the current canonical chain. If number is
 // nil, the latest known header is returned.
 func (etherMan *Client) TronHeaderByNumber(number *big.Int) (*types.Header, error) {
-	var params = []string{hexutil.EncodeBig(number)}
+	var params = []string{toBlockNumArg(number)}
 	params = append(params, "false") //If true it returns the full transaction objects, if false only the hashes of the transactions.
 	queryFilter := tron.FilterOtherParams{
 		BaseQueryParam: tron.GetDefaultBaseParm(),
@@ -1686,7 +1707,7 @@ func (etherMan *Client) TronHeaderByNumber(number *big.Int) (*types.Header, erro
 		Params:         params,
 	}
 	raw, err := QueryTronInfo(etherMan.cfg.TronGrid.Url, etherMan.cfg.TronGrid.ApiKey, queryFilter)
-	fmt.Println(string(raw))
+	fmt.Println(string(raw)) //TODO. ZYD. DEBUG
 	if err != nil {
 		return nil, err
 	}
@@ -1730,7 +1751,7 @@ func parseTronBlock(raw []byte) (*types.Block, error) {
 		return nil, err
 	}
 	body = tronBlockResp.Result.rpcBlock
-	// Quick-verify transaction and uncle lists. This mostly helps with debugging the server.
+	/*// Quick-verify transaction and uncle lists. This mostly helps with debugging the server.
 	if head.UncleHash == types.EmptyUncleHash && len(body.UncleHashes) > 0 {
 		return nil, fmt.Errorf("server returned non-empty uncle list but block header indicates no uncles")
 	}
@@ -1742,7 +1763,7 @@ func parseTronBlock(raw []byte) (*types.Block, error) {
 	}
 	if head.TxHash != types.EmptyRootHash && len(body.Transactions) == 0 {
 		return nil, fmt.Errorf("server returned empty transaction list but block header indicates transactions")
-	}
+	}*/ // TODO. ZYD
 	// Load uncles because they are not included in the block response.
 	var uncles []*types.Header //
 
@@ -1760,7 +1781,7 @@ func parseTronBlock(raw []byte) (*types.Block, error) {
 // Note that loading full blocks requires two requests. Use HeaderByNumber
 // if you don't need all transactions or uncle headers.
 func (etherMan *Client) TronBlockByNumber(number *big.Int) (*types.Block, error) {
-	var params = []string{hexutil.EncodeBig(number)}
+	var params = []string{toBlockNumArg(number)}
 	params = append(params, "true") //If true it returns the full transaction objects, if false only the hashes of the transactions.
 	queryFilter := tron.FilterOtherParams{
 		BaseQueryParam: tron.GetDefaultBaseParm(),
@@ -1801,30 +1822,72 @@ func (etherMan *Client) EthBlockByNumber(ctx context.Context, blockNumber uint64
 	return nil, errors.New("L1ChainType should be 'Tron' or 'Eth'")
 }
 
+// TronLastTimestamp is a free data retrieval call binding the contract method 0x19d8ac61.
+//
+// Solidity: function lastTimestamp() view returns(uint64)
+func (etherMan *Client) TronLastTimestamp() (uint64, error) {
+	polygonzkevmABI, err := abi.JSON(strings.NewReader(polygonzkevm.PolygonzkevmABI))
+	if err != nil {
+		return 0, err
+	}
+	callData, err := polygonzkevmABI.Pack("lastTimestamp")
+	if err != nil {
+		return 0, err
+	}
+	data, err := etherMan.QueryTronContract(etherMan.cfg.PoEAddr.String(), callData)
+	if err != nil {
+		return 0, err
+	}
+
+	// Unpack the results
+	var (
+		ret0 = new(uint64)
+	)
+	if err = polygonzkevmABI.UnpackIntoInterface(ret0, "lastTimestamp", data); err != nil {
+		return 0, nil
+	}
+
+	return (*ret0), err
+
+}
+
 // GetLastBatchTimestamp function allows to retrieve the lastTimestamp value in the smc
 func (etherMan *Client) GetLastBatchTimestamp() (uint64, error) {
 	switch etherMan.cfg.L1ChainType {
 	case "Eth":
 		return etherMan.PoE.LastTimestamp(&bind.CallOpts{Pending: false})
 	case "Tron":
-		polygonzkevmABI, err := abi.JSON(strings.NewReader(polygonzkevm.PolygonzkevmABI))
-		if err != nil {
-			return 0, err
-		}
-		callData, err := polygonzkevmABI.Pack("")
-		data, err := etherMan.TronRPCClient.TriggerConstantContract(etherMan.cfg.PoEAddr.String(), callData)
-		if err != nil {
-			return 0, err
-		}
-
-		var ret = new(uint64)
-		if err = polygonzkevmABI.UnpackIntoInterface(ret, "lastTimestamp", data); err != nil {
-			return 0, err
-		}
-		return *ret, nil
-
+		return etherMan.TronLastTimestamp()
 	}
 	return 0, errors.New("L1ChainType should be 'Tron' or 'Eth'")
+}
+
+// TronLastBatchSequenced is a free data retrieval call binding the contract method 0x423fa856.
+//
+// Solidity: function lastBatchSequenced() view returns(uint64)
+func (etherMan *Client) TronLastBatchSequenced() (uint64, error) {
+	polygonzkevmABI, err := abi.JSON(strings.NewReader(polygonzkevm.PolygonzkevmABI))
+	if err != nil {
+		return 0, err
+	}
+	callData, err := polygonzkevmABI.Pack("lastBatchSequenced")
+	if err != nil {
+		return 0, err
+	}
+	data, err := etherMan.QueryTronContract(etherMan.cfg.PoEAddr.String(), callData)
+	if err != nil {
+		return 0, err
+	}
+
+	// Unpack the results
+	var (
+		ret0 = new(uint64)
+	)
+	if err = polygonzkevmABI.UnpackIntoInterface(ret0, "lastBatchSequenced", data); err != nil {
+		return 0, nil
+	}
+
+	return (*ret0), err
 }
 
 // GetLatestBatchNumber function allows to retrieve the latest proposed batch in the smc
@@ -1833,32 +1896,29 @@ func (etherMan *Client) GetLatestBatchNumber() (uint64, error) {
 	case "Eth":
 		return etherMan.PoE.LastBatchSequenced(&bind.CallOpts{Pending: false})
 	case "Tron":
-		polygonzkevmABI, err := abi.JSON(strings.NewReader(polygonzkevm.PolygonzkevmABI))
-		if err != nil {
-			return 0, err
-		}
-		callData, err := polygonzkevmABI.Pack("lastBatchSequenced")
-		data, err := etherMan.TronRPCClient.TriggerConstantContract(etherMan.cfg.PoEAddr.String(), callData)
-		if err != nil {
-			return 0, err
-		}
-
-		var ret = new(uint64)
-		if err = polygonzkevmABI.UnpackIntoInterface(ret, "lastBatchSequenced", data); err != nil {
-			return 0, nil
-		}
-		return *ret, nil
+		return etherMan.TronLastBatchSequenced()
 	}
 	return 0, errors.New("L1ChainType should be 'Tron' or 'Eth'")
 }
 
 // GetLatestBlockNumber gets the latest block number from the ethereum
 func (etherMan *Client) GetLatestBlockNumber(ctx context.Context) (uint64, error) {
-	header, err := etherMan.EthClient.HeaderByNumber(ctx, nil)
-	if err != nil || header == nil {
-		return 0, err
+	switch etherMan.cfg.L1ChainType {
+	case "Eth":
+		header, err := etherMan.EthClient.HeaderByNumber(ctx, nil)
+		if err != nil || header == nil {
+			return 0, err
+		}
+		return header.Number.Uint64(), nil
+	case "Tron":
+		header, err := etherMan.TronHeaderByNumber(nil)
+		if err != nil || header == nil {
+			return 0, err
+		}
+		return header.Number.Uint64(), nil
 	}
-	return header.Number.Uint64(), nil
+
+	return 0, errors.New("L1ChainType should be 'Tron' or 'Eth'")
 }
 
 // GetLatestBlockTimestamp gets the latest block timestamp from the ethereum
@@ -1873,22 +1933,91 @@ func (etherMan *Client) GetLatestBlockTimestamp(ctx context.Context) (uint64, er
 	case "Tron":
 		return etherMan.TronRPCClient.GetLatestBlockTimestamp()
 	}
+
 	return 0, errors.New("L1ChainType should be 'Tron' or 'Eth'")
+}
+
+// TronLastVerifiedBatch is a free data retrieval call binding the contract method 0x7fcb3653.
+//
+// Solidity: function lastVerifiedBatch() view returns(uint64)
+func (etherMan *Client) TronLastVerifiedBatch() (uint64, error) {
+	polygonzkevmABI, err := abi.JSON(strings.NewReader(polygonzkevm.PolygonzkevmABI))
+	if err != nil {
+		return 0, err
+	}
+	callData, err := polygonzkevmABI.Pack("lastVerifiedBatch")
+	if err != nil {
+		return 0, err
+	}
+	data, err := etherMan.QueryTronContract(etherMan.cfg.PoEAddr.String(), callData)
+	if err != nil {
+		return 0, err
+	}
+
+	// Unpack the results
+	var (
+		ret0 = new(uint64)
+	)
+	if err = polygonzkevmABI.UnpackIntoInterface(ret0, "lastVerifiedBatch", data); err != nil {
+		return 0, nil
+	}
+
+	return (*ret0), err
 }
 
 // GetLatestVerifiedBatchNum gets latest verified batch from ethereum
 func (etherMan *Client) GetLatestVerifiedBatchNum() (uint64, error) {
-	return etherMan.PoE.LastVerifiedBatch(&bind.CallOpts{Pending: false})
+	switch etherMan.cfg.L1ChainType {
+	case "Eth":
+		return etherMan.PoE.LastVerifiedBatch(&bind.CallOpts{Pending: false})
+	case "Tron":
+		return etherMan.TronLastVerifiedBatch()
+	}
+
+	return 0, errors.New("L1ChainType should be 'Tron' or 'Eth'")
 }
 
 // GetTx function get ethereum tx
 func (etherMan *Client) GetTx(ctx context.Context, txHash common.Hash) (*types.Transaction, bool, error) {
-	return etherMan.EthClient.TransactionByHash(ctx, txHash)
+	switch etherMan.cfg.L1ChainType {
+	case "Eth":
+		return etherMan.EthClient.TransactionByHash(ctx, txHash)
+	case "Tron":
+		return etherMan.TronTransactionByHash(txHash)
+	}
+	return nil, false, errors.New("L1ChainType should be 'Tron' or 'Eth'")
+}
+
+func (etherMan *Client) TronTransactionReceipt(txID string) (*types.Receipt, error) {
+	// create filter
+	var txIDs = []string{txID}
+	queryFilter := tron.FilterOtherParams{
+		BaseQueryParam: tron.GetDefaultBaseParm(),
+		Method:         tron.GetTransactionReceipt,
+		Params:         txIDs,
+	}
+	raw, err := QueryTronInfo(etherMan.cfg.TronGrid.Url, etherMan.cfg.TronGrid.ApiKey, queryFilter)
+	fmt.Println(string(raw)) //TODO. ZYD. DEBUG
+	if err != nil {
+		return nil, err
+	}
+	var transactionReceipt tron.FilterTxResponse
+	if err := json.Unmarshal(raw, &transactionReceipt); err != nil {
+		return nil, err
+	}
+	return &transactionReceipt.Result, nil
 }
 
 // GetTxReceipt function gets ethereum tx receipt
 func (etherMan *Client) GetTxReceipt(ctx context.Context, txHash common.Hash) (*types.Receipt, error) {
-	return etherMan.EthClient.TransactionReceipt(ctx, txHash)
+	switch etherMan.cfg.L1ChainType {
+	case "Eth":
+		return etherMan.EthClient.TransactionReceipt(ctx, txHash)
+	case "Tron":
+		return etherMan.TronTransactionReceipt(txHash.Hex())
+	}
+
+	return nil, errors.New("L1ChainType should be 'Tron' or 'Eth'")
 }
 
 // ApproveMatic function allow to approve tokens in matic smc
@@ -1911,9 +2040,52 @@ func (etherMan *Client) ApproveMatic(ctx context.Context, account common.Address
 	return tx, nil
 }
 
+// TronTrustedSequencerURL is a free data retrieval call binding the contract method 0x542028d5.
+//
+// Solidity: function trustedSequencerURL() view returns(string)
+func (etherMan *Client) TronTrustedSequencerURL() (string, error) {
+	polygonzkevmABI, err := abi.JSON(strings.NewReader(polygonzkevm.PolygonzkevmABI))
+	if err != nil {
+		return *new(string), err
+	}
+	callData, err := polygonzkevmABI.Pack("trustedSequencerURL")
+	if err != nil {
+		return *new(string), err
+	}
+	data, err := etherMan.QueryTronContract(etherMan.cfg.PoEAddr.String(), callData)
+	if err != nil {
+		return *new(string), err
+	}
+
+	// Unpack the results
+	var (
+		ret0 = new(string)
+	)
+	if err = polygonzkevmABI.UnpackIntoInterface(ret0, "trustedSequencerURL", data); err != nil {
+		return *new(string), nil
+	}
+
+	return (*ret0), err
+
+}
+
 // GetTrustedSequencerURL Gets the trusted sequencer url from rollup smc
 func (etherMan *Client) GetTrustedSequencerURL() (string, error) {
-	return etherMan.PoE.TrustedSequencerURL(&bind.CallOpts{Pending: false})
+	switch etherMan.cfg.L1ChainType {
+	case "Eth":
+		return etherMan.PoE.TrustedSequencerURL(&bind.CallOpts{Pending: false})
+	case "Tron":
+		return etherMan.TronTrustedSequencerURL()
+	}
+	return *new(string), errors.New("L1ChainType should be 'Tron' or 'Eth'")
+}
+
+func (etherMan *Client) QueryTronContract(contractAddr string, callData []byte) ([]byte, error) {
+	result, err := etherMan.TronRPCClient.TriggerConstantContract(contractAddr, callData)
+	if err != nil {
+		return nil, err
+	}
+	return result, nil
 }
 
 // GetL2ChainID returns L2 Chain ID
@@ -1930,7 +2102,7 @@ func (etherMan *Client) GetL2ChainID() (uint64, error) {
 		if err != nil {
 			return 0, err
 		}
-		data, err := etherMan.TronRPCClient.TriggerConstantContract(etherMan.cfg.PoEAddr.String(), callData)
+		data, err := etherMan.QueryTronContract(etherMan.cfg.PoEAddr.String(), callData)
 		if err != nil {
 			return 0, err
 		}
@@ -2017,25 +2189,14 @@ func (etherMan *Client) CheckTxWasMined(ctx context.Context, txHash common.Hash)
 
 		return true, receipt, nil
 	case "Tron":
-		var txIDs = []string{txHash.Hex()}
-		queryFilter := tron.FilterOtherParams{
-			BaseQueryParam: tron.GetDefaultBaseParm(),
-			Method:         tron.GetTransactionByHash,
-			Params:         txIDs,
-		}
-		result, err := QueryTronInfo(etherMan.cfg.TronGrid.Url, etherMan.cfg.TronGrid.ApiKey, queryFilter)
+		receipt, err := etherMan.TronTransactionReceipt(txHash.Hex())
 		if errors.Is(err, ethereum.NotFound) {
 			return false, nil, nil
 		} else if err != nil {
 			return false, nil, err
 		}
 
-		var transactionReceipt tron.FilterTxResponse
-		if err := json.Unmarshal(result, &transactionReceipt); err != nil {
-			return false, nil, err
-		}
-
-		return true, &transactionReceipt.Result, nil
+		return true, receipt, nil
 	}
 	return false, nil, errors.New("L1ChainType should be 'Tron' or 'Eth'")
 }

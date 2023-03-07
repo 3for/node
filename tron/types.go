@@ -15,7 +15,6 @@ const (
 	CodeAt                = "eth_getCode"
 	StorageAt             = "eth_getStorageAt"
 	BalanceAt             = "eth_getBalance"
-	NonceAt               = "eth_getTransactionCount"
 	BlockByHash           = "eth_getBlockByHash"
 	GetTransactionByHash  = "eth_getTransactionByHash"
 	HeaderByNumber        = "eth_getBlockByNumber"
