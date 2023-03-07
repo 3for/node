@@ -100,6 +100,7 @@ func (s *ClientSynchronizer) Sync() error {
 				ParentHash:  header.ParentHash,
 				ReceivedAt:  time.Unix(int64(header.Time), 0),
 			}
+			//s.syncBlocks(lastEthBlockSynced) //TODO, ZYD, test here.
 			newRoot, err := s.state.SetGenesis(s.ctx, *lastEthBlockSynced, s.genesis, dbTx)
 			if err != nil {
 				log.Fatal("error setting genesis: ", err)
