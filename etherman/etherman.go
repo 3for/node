@@ -811,17 +811,65 @@ func (etherMan *Client) BuildTrustedVerifyBatchesTxData(lastVerifiedBatch, newVe
 
 // GetSendSequenceFee get super/trusted sequencer fee
 func (etherMan *Client) GetSendSequenceFee(numBatches uint64) (*big.Int, error) {
-	f, err := etherMan.PoE.GetCurrentBatchFee(&bind.CallOpts{Pending: false})
-	if err != nil {
-		return nil, err
+	switch etherMan.cfg.L1ChainType {
+	case "Eth":
+		f, err := etherMan.PoE.GetCurrentBatchFee(&bind.CallOpts{Pending: false})
+		if err != nil {
+			return nil, err
+		}
+		fee := new(big.Int).Mul(f, new(big.Int).SetUint64(numBatches))
+		return fee, nil
+	case "Tron":
+		polygonzkevmABI, err := abi.JSON(strings.NewReader(polygonzkevm.PolygonzkevmABI))
+		if err != nil {
+			return nil, err
+		}
+		callData, err := polygonzkevmABI.Pack("getCurrentBatchFee")
+		if err != nil {
+			return nil, err
+		}
+		data, err := etherMan.TronRPCClient.TriggerConstantContract(etherMan.cfg.PoEAddr.String(), callData)
+		if err != nil {
+			return nil, err
+		}
+
+		ret := new(big.Int)
+		if err = polygonzkevmABI.UnpackIntoInterface(ret, "getCurrentBatchFee", data); err != nil {
+			return nil, err
+		}
+		return ret, nil
 	}
-	fee := new(big.Int).Mul(f, new(big.Int).SetUint64(numBatches))
-	return fee, nil
+	return nil, errors.New("L1ChainType should be 'Tron' or 'Eth'")
 }
 
 // TrustedSequencer gets trusted sequencer address
 func (etherMan *Client) TrustedSequencer() (common.Address, error) {
-	return etherMan.PoE.TrustedSequencer(&bind.CallOpts{Pending: false})
+	switch etherMan.cfg.L1ChainType {
+	case "Eth":
+		return etherMan.PoE.TrustedSequencer(&bind.CallOpts{Pending: false})
+	case "Tron":
+		polygonzkevmABI, err := abi.JSON(strings.NewReader(polygonzkevm.PolygonzkevmABI))
+		if err != nil {
+			return common.Address{}, err
+		}
+		callData, err := polygonzkevmABI.Pack("trustedSequencer")
+		if err != nil {
+			return common.Address{}, err
+		}
+
+		data, err := etherMan.TronRPCClient.TriggerConstantContract(etherMan.cfg.PoEAddr.String(), callData)
+		if err != nil {
+			return common.Address{}, err
+		}
+
+		ret := new(common.Address)
+		if err = polygonzkevmABI.UnpackIntoInterface(ret, "trustedSequencer", data); err != nil {
+			return common.Address{}, err
+		}
+
+		return *ret, nil
+	}
+	return common.Address{}, errors.New("L1ChainType should be 'Tron' or 'Eth'")
 }
 
 // TronParseForceBatch is a log parse operation binding the contract event 0xf94bb37db835f1ab585ee00041849a09b12cd081d77fa15ca070757619cbc931.
@@ -1564,12 +1612,53 @@ func (etherMan *Client) EthBlockByNumber(ctx context.Context, blockNumber uint64
 
 // GetLastBatchTimestamp function allows to retrieve the lastTimestamp value in the smc
 func (etherMan *Client) GetLastBatchTimestamp() (uint64, error) {
-	return etherMan.PoE.LastTimestamp(&bind.CallOpts{Pending: false})
+	switch etherMan.cfg.L1ChainType {
+	case "Eth":
+		return etherMan.PoE.LastTimestamp(&bind.CallOpts{Pending: false})
+	case "Tron":
+		polygonzkevmABI, err := abi.JSON(strings.NewReader(polygonzkevm.PolygonzkevmABI))
+		if err != nil {
+			return 0, err
+		}
+		callData, err := polygonzkevmABI.Pack("")
+		data, err := etherMan.TronRPCClient.TriggerConstantContract(etherMan.cfg.PoEAddr.String(), callData)
+		if err != nil {
+			return 0, err
+		}
+
+		var ret = new(uint64)
+		if err = polygonzkevmABI.UnpackIntoInterface(ret, "lastTimestamp", data); err != nil {
+			return 0, err
+		}
+		return *ret, nil
+
+	}
+	return 0, errors.New("L1ChainType should be 'Tron' or 'Eth'")
 }
 
 // GetLatestBatchNumber function allows to retrieve the latest proposed batch in the smc
 func (etherMan *Client) GetLatestBatchNumber() (uint64, error) {
-	return etherMan.PoE.LastBatchSequenced(&bind.CallOpts{Pending: false})
+	switch etherMan.cfg.L1ChainType {
+	case "Eth":
+		return etherMan.PoE.LastBatchSequenced(&bind.CallOpts{Pending: false})
+	case "Tron":
+		polygonzkevmABI, err := abi.JSON(strings.NewReader(polygonzkevm.PolygonzkevmABI))
+		if err != nil {
+			return 0, err
+		}
+		callData, err := polygonzkevmABI.Pack("lastBatchSequenced")
+		data, err := etherMan.TronRPCClient.TriggerConstantContract(etherMan.cfg.PoEAddr.String(), callData)
+		if err != nil {
+			return 0, err
+		}
+
+		var ret = new(uint64)
+		if err = polygonzkevmABI.UnpackIntoInterface(ret, "lastBatchSequenced", data); err != nil {
+			return 0, nil
+		}
+		return *ret, nil
+	}
+	return 0, errors.New("L1ChainType should be 'Tron' or 'Eth'")
 }
 
 // GetLatestBlockNumber gets the latest block number from the ethereum
@@ -1583,11 +1672,17 @@ func (etherMan *Client) GetLatestBlockNumber(ctx context.Context) (uint64, error
 
 // GetLatestBlockTimestamp gets the latest block timestamp from the ethereum
 func (etherMan *Client) GetLatestBlockTimestamp(ctx context.Context) (uint64, error) {
-	header, err := etherMan.EthClient.HeaderByNumber(ctx, nil)
-	if err != nil || header == nil {
-		return 0, err
+	switch etherMan.cfg.L1ChainType {
+	case "Eth":
+		header, err := etherMan.EthClient.HeaderByNumber(ctx, nil)
+		if err != nil || header == nil {
+			return 0, err
+		}
+		return header.Time, nil
+	case "Tron":
+		return etherMan.TronRPCClient.GetLatestBlockTimestamp()
 	}
-	return header.Time, nil
+	return 0, errors.New("L1ChainType should be 'Tron' or 'Eth'")
 }
 
 // GetLatestVerifiedBatchNum gets latest verified batch from ethereum

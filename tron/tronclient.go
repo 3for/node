@@ -38,6 +38,14 @@ func (tc *Client) GetBalance(address string) (int64, error) {
 	return response.Balance, nil
 }
 
+func (tc *Client) GetLatestBlockTimestamp() (uint64, error) {
+	response, err := tc.client.GetNowBlock(context.Background(), &pb.EmptyMessage{})
+	if err != nil {
+		return 0, err
+	}
+	return uint64(response.BlockHeader.RawData.Timestamp), nil
+}
+
 func (tc *Client) TriggerConstantContract(contractAddress string, data []byte) ([]byte, error) {
 	response, err := tc.client.TriggerConstantContract(context.Background(),
 		&pb.TriggerSmartContract{
