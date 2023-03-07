@@ -756,14 +756,33 @@ func (etherMan *Client) sequenceBatches(opts bind.TransactOpts, sequences []ethm
 		batches = append(batches, batch)
 	}
 
-	tx, err := etherMan.PoE.SequenceBatches(&opts, batches, opts.From)
-	if err != nil {
-		if parsedErr, ok := tryParseError(err); ok {
-			err = parsedErr
+	switch etherMan.cfg.L1ChainType {
+	case "Eth":
+		tx, err := etherMan.PoE.SequenceBatches(&opts, batches, opts.From)
+		if err != nil {
+			if parsedErr, ok := tryParseError(err); ok {
+				err = parsedErr
+			}
 		}
-	}
 
-	return tx, err
+		return tx, err
+	case "Tron":
+		polygonzkevmABI, err := abi.JSON(strings.NewReader(polygonzkevm.PolygonzkevmABI))
+		if err != nil {
+			return nil, err
+		}
+		callData, err := polygonzkevmABI.Pack("sequenceBatches", batches, opts.From)
+		if err != nil {
+			return nil, err
+		}
+		baseTx := &types.LegacyTx{
+			To:   &etherMan.cfg.PoEAddr,
+			Data: callData,
+		}
+		tx := types.NewTx(baseTx)
+		return tx, nil
+	}
+	return nil, errors.New("L1ChainType should be 'Tron' or 'Eth'")
 }
 
 // BuildTrustedVerifyBatchesTxData builds a []bytes to be sent to the PoE SC method TrustedVerifyBatches.
@@ -793,23 +812,43 @@ func (etherMan *Client) BuildTrustedVerifyBatchesTxData(lastVerifiedBatch, newVe
 
 	const pendStateNum = 0 // TODO hardcoded for now until we implement the pending state feature
 
-	tx, err := etherMan.PoE.VerifyBatchesTrustedAggregator(
-		&opts,
-		pendStateNum,
-		lastVerifiedBatch,
-		newVerifiedBatch,
-		newLocalExitRoot,
-		newStateRoot,
-		proof,
-	)
-	if err != nil {
-		if parsedErr, ok := tryParseError(err); ok {
-			err = parsedErr
+	switch etherMan.cfg.L1ChainType {
+	case "Eth":
+		tx, err := etherMan.PoE.VerifyBatchesTrustedAggregator(
+			&opts,
+			pendStateNum,
+			lastVerifiedBatch,
+			newVerifiedBatch,
+			newLocalExitRoot,
+			newStateRoot,
+			proof,
+		)
+		if err != nil {
+			if parsedErr, ok := tryParseError(err); ok {
+				err = parsedErr
+			}
+			return nil, nil, err
 		}
-		return nil, nil, err
-	}
 
-	return tx.To(), tx.Data(), nil
+		return tx.To(), tx.Data(), nil
+	case "Tron":
+		polygonzkevmABI, err := abi.JSON(strings.NewReader(polygonzkevm.PolygonzkevmABI))
+		if err != nil {
+			return nil, nil, err
+		}
+		callData, err := polygonzkevmABI.Pack("verifyBatchesTrustedAggregator", pendStateNum,
+			lastVerifiedBatch,
+			newVerifiedBatch,
+			newLocalExitRoot,
+			newStateRoot,
+			proof)
+		if err != nil {
+			return nil, nil, err
+		}
+		return &etherMan.cfg.PoEAddr, callData, nil
+	}
+	return nil, nil, errors.New("L1ChainType should be 'Tron' or 'Eth'")
+
 }
 
 // GetSendSequenceFee get super/trusted sequencer fee
@@ -2154,26 +2193,45 @@ func (etherMan *Client) SendTx(ctx context.Context, tx *types.Transaction) error
 
 // CurrentNonce returns the current nonce for the provided account
 func (etherMan *Client) CurrentNonce(ctx context.Context, account common.Address) (uint64, error) {
-	return etherMan.EthClient.NonceAt(ctx, account, nil)
+	switch etherMan.cfg.L1ChainType {
+	case "Eth":
+		return etherMan.EthClient.NonceAt(ctx, account, nil)
+	case "Tron":
+		return 0, nil // Tron tx, nonce default as 0
+	}
+	return 0, errors.New("L1ChainType should be 'Tron' or 'Eth'")
 }
 
 // SuggestedGasPrice returns the suggest nonce for the network at the moment
 func (etherMan *Client) SuggestedGasPrice(ctx context.Context) (*big.Int, error) {
-	suggestedGasPrice := etherMan.GetL1GasPrice(ctx)
-	if suggestedGasPrice.Cmp(big.NewInt(0)) == 0 {
-		return nil, errors.New("failed to get the suggested gas price")
+	switch etherMan.cfg.L1ChainType {
+	case "Eth":
+		suggestedGasPrice := etherMan.GetL1GasPrice(ctx)
+		if suggestedGasPrice.Cmp(big.NewInt(0)) == 0 {
+			return nil, errors.New("failed to get the suggested gas price")
+		}
+		return suggestedGasPrice, nil
+	case "Tron":
+		return new(big.Int).SetUint64(0), nil
 	}
-	return suggestedGasPrice, nil
+	return nil, errors.New("L1ChainType should be 'Tron' or 'Eth'")
 }
 
 // EstimateGas returns the estimated gas for the tx
 func (etherMan *Client) EstimateGas(ctx context.Context, from common.Address, to *common.Address, value *big.Int, data []byte) (uint64, error) {
-	return etherMan.EthClient.EstimateGas(ctx, ethereum.CallMsg{
-		From:  from,
-		To:    to,
-		Value: value,
-		Data:  data,
-	})
+	switch etherMan.cfg.L1ChainType {
+	case "Eth":
+		return etherMan.EthClient.EstimateGas(ctx, ethereum.CallMsg{
+			From:  from,
+			To:    to,
+			Value: value,
+			Data:  data,
+		})
+	case "Tron":
+		return etherMan.cfg.TronFeeLimit, nil
+	}
+
+	return 0, errors.New("L1ChainType should be 'Tron' or 'Eth'")
 }
 
 // CheckTxWasMined check if a tx was already mined
