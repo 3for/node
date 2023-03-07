@@ -10,7 +10,7 @@ Outputs = ["stderr"]
 User = "state_user"
 Password = "state_password"
 Name = "state_db"
-Host = "172.16.200.177"
+Host = "107.22.222.8"
 Port = "5432"
 EnableLog = false
 MaxConns = 200
@@ -21,7 +21,7 @@ FreeClaimGasLimit = 1500000
 	User = "pool_user"
 	Password = "pool_password"
 	Name = "pool_db"
-	Host = "172.16.200.177"
+	Host = "107.22.222.8"
 	Port = "5433"
 	EnableLog = false
 	MaxConns = 200
@@ -124,10 +124,10 @@ Factor = 0.5
 DefaultGasPriceWei = 1000000000
 
 [MTClient]
-URI  = "172.16.200.177:50061" # do not run zkevm-prover in docker, set IP
+URI  = "107.22.222.8:50061" # do not run zkevm-prover in docker, set IP
 
 [Executor]
-URI = "172.16.200.177:50071" # do not run zkevm-prover in docker, set IP
+URI = "107.22.222.8:50071" # do not run zkevm-prover in docker, set IP
 
 [BroadcastServer]
 Host = "0.0.0.0"
