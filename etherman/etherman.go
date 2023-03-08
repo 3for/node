@@ -3,6 +3,8 @@ package etherman
 import (
 	"bytes"
 	"context"
+	"crypto/ecdsa"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -29,6 +31,7 @@ import (
 	"github.com/0xPolygonHermez/zkevm-node/state"
 	"github.com/0xPolygonHermez/zkevm-node/test/operations"
 	"github.com/0xPolygonHermez/zkevm-node/tron"
+	tronPb "github.com/0xPolygonHermez/zkevm-node/tron/pb"
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
@@ -40,6 +43,7 @@ import (
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/ethereum/go-ethereum/rpc"
 	"golang.org/x/crypto/sha3"
+	"google.golang.org/protobuf/proto"
 )
 
 var (
@@ -125,8 +129,9 @@ type Client struct {
 
 	GasProviders externalGasProviders
 
-	cfg  Config
-	auth map[common.Address]bind.TransactOpts // empty in case of read-only client
+	cfg      Config
+	auth     map[common.Address]bind.TransactOpts // empty in case of read-only client
+	tronAuth map[common.Address]ecdsa.PrivateKey  // Tron: map Publickey to PrivateKey
 }
 
 // NewClient creates a new etherman.
@@ -176,8 +181,9 @@ func NewClient(cfg Config) (*Client, error) {
 				MultiGasProvider: cfg.MultiGasProvider,
 				Providers:        gProviders,
 			},
-			cfg:  cfg,
-			auth: map[common.Address]bind.TransactOpts{},
+			cfg:      cfg,
+			auth:     map[common.Address]bind.TransactOpts{},
+			tronAuth: map[common.Address]ecdsa.PrivateKey{},
 		}, nil
 	case "Tron":
 		// Connect to Tron node
@@ -194,6 +200,7 @@ func NewClient(cfg Config) (*Client, error) {
 			SCAddresses:   scAddresses,
 			cfg:           cfg,
 			auth:          map[common.Address]bind.TransactOpts{},
+			tronAuth:      map[common.Address]ecdsa.PrivateKey{},
 		}, nil
 	}
 
@@ -695,16 +702,80 @@ func (etherMan *Client) updateGlobalExitRootEvent(ctx context.Context, vLog type
 	return errors.New("L1ChainType should be 'Tron' or 'Eth'")
 }
 
-// WaitTxToBeMined waits for an L1 tx to be mined. It will return error if the tx is reverted or timeout is exceeded
-func (etherMan *Client) WaitTxToBeMined(ctx context.Context, tx *types.Transaction, timeout time.Duration) (bool, error) {
-	err := operations.WaitTxToBeMined(ctx, etherMan.EthClient, tx, timeout)
+// TronWaitMined waits for tx to be mined on the blockchain.
+// It stops waiting when the context is canceled.
+func (etherMan *Client) TronWaitMined(ctx context.Context, txHash string) (*types.Receipt, error) {
+	queryTicker := time.NewTicker(time.Second)
+	defer queryTicker.Stop()
+
+	log.Info("hash", txHash)
+	for {
+		receipt, err := etherMan.TronTransactionReceipt(txHash)
+		if err == nil {
+			return receipt, nil
+		}
+
+		if errors.Is(err, ethereum.NotFound) {
+			log.Error("Transaction not yet mined")
+		} else {
+			log.Error("Receipt retrieval failed", "err", err)
+		}
+
+		// Wait for the next round.
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-queryTicker.C:
+		}
+	}
+}
+
+// TronWaitTxToBeMined waits until a tx has been mined or the given timeout expires.
+func (etherMan *Client) TronWaitTxToBeMined(parentCtx context.Context, txHash string, timeout time.Duration) error {
+	ctx, cancel := context.WithTimeout(parentCtx, timeout)
+	defer cancel()
+	receipt, err := etherMan.TronWaitMined(ctx, txHash)
 	if errors.Is(err, context.DeadlineExceeded) {
-		return false, nil
+		return err
+	} else if err != nil {
+		log.Errorf("error waiting tx %s to be mined: %w", txHash, err)
+		return err
 	}
-	if err != nil {
-		return false, err
+	if receipt.Status == types.ReceiptStatusFailed {
+		// Get revert reason
+		/*reason, reasonErr := etherMan.TronRevertReason(ctx, txHash, receipt.BlockNumber)
+		if reasonErr != nil {
+			reason = reasonErr.Error()
+		}
+		return fmt.Errorf("transaction has failed, reason: %s, receipt: %+v. ", reason, receipt)*/
+		return fmt.Errorf("transaction has failed, receipt: %+v. ", receipt)
 	}
-	return true, nil
+	log.Debug("Transaction successfully mined: ", txHash)
+	return nil
+}
+
+// WaitTxToBeMined waits for an L1 tx to be mined. It will return error if the tx is reverted or timeout is exceeded
+func (etherMan *Client) WaitTxToBeMined(ctx context.Context, tx *types.Transaction, txHash string, timeout time.Duration) (bool, error) {
+	switch etherMan.cfg.L1ChainType {
+	case "Eth":
+		err := operations.WaitTxToBeMined(ctx, etherMan.EthClient, tx, timeout)
+		if errors.Is(err, context.DeadlineExceeded) {
+			return false, nil
+		}
+		if err != nil {
+			return false, err
+		}
+		return true, nil
+	case "Tron":
+		err := etherMan.TronWaitTxToBeMined(ctx, txHash, timeout)
+		if errors.Is(err, context.DeadlineExceeded) {
+			return false, nil
+		}
+		if err != nil {
+			return false, err
+		}
+	}
+	return false, errors.New("L1ChainType should be 'Tron' or 'Eth'")
 }
 
 // EstimateGasSequenceBatches estimates gas for sending batches
@@ -2187,8 +2258,14 @@ func (etherMan *Client) GetL1GasPrice(ctx context.Context) *big.Int {
 }
 
 // SendTx sends a tx to L1
-func (etherMan *Client) SendTx(ctx context.Context, tx *types.Transaction) error {
-	return etherMan.EthClient.SendTransaction(ctx, tx)
+func (etherMan *Client) SendTx(ctx context.Context, tx *types.Transaction, tronTx *tronPb.Transaction) error {
+	switch etherMan.cfg.L1ChainType {
+	case "Eth":
+		return etherMan.EthClient.SendTransaction(ctx, tx)
+	case "Tron":
+		return etherMan.TronRPCClient.BroadcastTransaction(ctx, tronTx)
+	}
+	return errors.New("L1ChainType should be 'Tron' or 'Eth'")
 }
 
 // CurrentNonce returns the current nonce for the provided account
@@ -2228,7 +2305,7 @@ func (etherMan *Client) EstimateGas(ctx context.Context, from common.Address, to
 			Data:  data,
 		})
 	case "Tron":
-		return etherMan.cfg.TronFeeLimit, nil
+		return 0, nil //default 0, while send Tron tx with FeeLimit from config info
 	}
 
 	return 0, errors.New("L1ChainType should be 'Tron' or 'Eth'")
@@ -2259,17 +2336,62 @@ func (etherMan *Client) CheckTxWasMined(ctx context.Context, txHash common.Hash)
 	return false, nil, errors.New("L1ChainType should be 'Tron' or 'Eth'")
 }
 
-// SignTx tries to sign a transaction accordingly to the provided sender
-func (etherMan *Client) SignTx(ctx context.Context, sender common.Address, tx *types.Transaction) (*types.Transaction, error) {
-	auth, err := etherMan.getAuthByAddress(sender)
-	if err == ErrNotFound {
-		return nil, ErrPrivateKeyNotFound
-	}
-	signedTx, err := auth.Signer(auth.From, tx)
+// Package goLang sha256 hash algorithm.
+func TronHash(s []byte) ([]byte, error) {
+	h := sha256.New()
+	_, err := h.Write(s)
 	if err != nil {
 		return nil, err
 	}
-	return signedTx, nil
+	bs := h.Sum(nil)
+	return bs, nil
+}
+
+// build Tron tx to get txHash
+func (etherMan *Client) TronSignTx(sender common.Address, tx *types.Transaction) (common.Hash, *types.Transaction, *tronPb.Transaction, error) {
+	senderPrivateKey, err := etherMan.getTronAuthByAddress(sender)
+	if err == ErrNotFound {
+		return common.Hash{}, nil, nil, ErrPrivateKeyNotFound
+	}
+	trx, err := etherMan.TronRPCClient.TriggerContract(sender.String(), tx.To().String(), tx.Data())
+
+	if err != nil {
+		return common.Hash{}, nil, nil, err
+	}
+	trx.RawData.FeeLimit = int64(etherMan.cfg.TronFeeLimit)
+	rawData, _ := proto.Marshal(trx.GetRawData())
+	hash, err := TronHash(rawData)
+	if err != nil {
+		return common.Hash{}, nil, nil, err
+	}
+
+	signature, err := crypto.Sign(hash, senderPrivateKey)
+	if err != nil {
+		return common.Hash{}, nil, nil, err
+	}
+
+	trx.Signature = append(trx.GetSignature(), signature)
+
+	return common.BytesToHash(hash), nil, trx, nil
+}
+
+// SignTx tries to sign a transaction accordingly to the provided sender
+func (etherMan *Client) SignTx(ctx context.Context, sender common.Address, tx *types.Transaction) (common.Hash, *types.Transaction, *tronPb.Transaction, error) {
+	switch etherMan.cfg.L1ChainType {
+	case "Eth":
+		auth, err := etherMan.getAuthByAddress(sender)
+		if err == ErrNotFound {
+			return common.Hash{}, nil, nil, ErrPrivateKeyNotFound
+		}
+		signedTx, err := auth.Signer(auth.From, tx)
+		if err != nil {
+			return common.Hash{}, nil, nil, err
+		}
+		return signedTx.Hash(), signedTx, nil, nil
+	case "Tron":
+		return etherMan.TronSignTx(sender, tx)
+	}
+	return common.Hash{}, nil, nil, errors.New("L1ChainType should be 'Tron' or 'Eth'")
 }
 
 // GetRevertMessage tries to get a revert message of a transaction
@@ -2302,7 +2424,7 @@ func (etherMan *Client) AddOrReplaceAuth(auth bind.TransactOpts) error {
 
 // LoadAuthFromKeyStore loads an authorization from a key store file
 func (etherMan *Client) LoadAuthFromKeyStore(path, password string) (*bind.TransactOpts, error) {
-	auth, err := newAuthFromKeystore(path, password, etherMan.cfg.L1ChainID)
+	auth, err := etherMan.newAuthFromKeystore(path, password, etherMan.cfg.L1ChainID)
 	if err != nil {
 		return nil, err
 	}
@@ -2313,7 +2435,7 @@ func (etherMan *Client) LoadAuthFromKeyStore(path, password string) (*bind.Trans
 }
 
 // newKeyFromKeystore creates an instance of a keystore key from a keystore file
-func newKeyFromKeystore(path, password string) (*keystore.Key, error) {
+func (etherMan *Client) newKeyFromKeystore(path, password string) (*keystore.Key, error) {
 	if path == "" && password == "" {
 		return nil, nil
 	}
@@ -2330,9 +2452,9 @@ func newKeyFromKeystore(path, password string) (*keystore.Key, error) {
 }
 
 // newAuthFromKeystore an authorization instance from a keystore file
-func newAuthFromKeystore(path, password string, chainID uint64) (bind.TransactOpts, error) {
+func (etherMan *Client) newAuthFromKeystore(path, password string, chainID uint64) (bind.TransactOpts, error) {
 	log.Infof("reading key from: %v", path)
-	key, err := newKeyFromKeystore(path, password)
+	key, err := etherMan.newKeyFromKeystore(path, password)
 	if err != nil {
 		return bind.TransactOpts{}, err
 	}
@@ -2343,6 +2465,7 @@ func newAuthFromKeystore(path, password string, chainID uint64) (bind.TransactOp
 	if err != nil {
 		return bind.TransactOpts{}, err
 	}
+	etherMan.tronAuth[auth.From] = *key.PrivateKey
 	return *auth, nil
 }
 
@@ -2353,6 +2476,15 @@ func (etherMan *Client) getAuthByAddress(addr common.Address) (bind.TransactOpts
 		return bind.TransactOpts{}, ErrNotFound
 	}
 	return auth, nil
+}
+
+// getTronAuthByAddress tries to get an authorization from the authorizations map
+func (etherMan *Client) getTronAuthByAddress(addr common.Address) (*ecdsa.PrivateKey, error) {
+	tronPrivateKey, found := etherMan.tronAuth[addr]
+	if !found {
+		return nil, ErrNotFound
+	}
+	return &tronPrivateKey, nil
 }
 
 // generateRandomAuth generates an authorization instance from a

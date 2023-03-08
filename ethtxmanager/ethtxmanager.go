@@ -13,6 +13,7 @@ import (
 
 	"github.com/0xPolygonHermez/zkevm-node/log"
 	"github.com/0xPolygonHermez/zkevm-node/state"
+	tronPb "github.com/0xPolygonHermez/zkevm-node/tron/pb"
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
@@ -320,6 +321,8 @@ func (c *Client) monitorTxs(ctx context.Context) error {
 		}
 
 		var signedTx *types.Transaction
+		var txHash common.Hash // correspond with signed.Hash()
+		var tronSignedTx *tronPb.Transaction
 		if !mined {
 			// if is a reorged, move to the next
 			if mTx.status == MonitoredTxStatusReorged {
@@ -345,15 +348,19 @@ func (c *Client) monitorTxs(ctx context.Context) error {
 			mTxLog.Debugf("unsigned tx %v created", tx.Hash().String(), mTx.id)
 
 			// sign tx
-			signedTx, err = c.etherman.SignTx(ctx, mTx.from, tx)
+			txHash, signedTx, tronSignedTx, err = c.etherman.SignTx(ctx, mTx.from, tx)
 			if err != nil {
 				mTxLog.Errorf("failed to sign tx %v created from monitored tx %v: %v", tx.Hash().String(), mTx.id, err)
 				continue
 			}
-			mTxLog.Debugf("signed tx %v created", signedTx.Hash().String())
+			if txHash == (common.Hash{}) {
+				mTxLog.Errorf("Failed to get SignTx hash,failed to sign tx %v created from monitored tx %v: %v", tx.Hash().String(), mTx.id, err)
+				continue
+			}
+			mTxLog.Debugf("signed tx %v created", txHash.String())
 
 			// add tx to monitored tx history
-			err = mTx.AddHistory(signedTx)
+			err = mTx.AddHistory(txHash)
 			if errors.Is(err, ErrAlreadyExists) {
 				mTxLog.Infof("signed tx already existed in the history")
 			} else if err != nil {
@@ -370,16 +377,16 @@ func (c *Client) monitorTxs(ctx context.Context) error {
 			}
 
 			// check if the tx is already in the network, if not, send it
-			_, _, err = c.etherman.GetTx(ctx, signedTx.Hash())
+			_, _, err = c.etherman.GetTx(ctx, txHash)
 			// if not found, send it tx to the network
 			if errors.Is(err, ethereum.NotFound) {
 				mTxLog.Debugf("signed tx not found in the network")
-				err := c.etherman.SendTx(ctx, signedTx)
+				err := c.etherman.SendTx(ctx, signedTx, tronSignedTx)
 				if err != nil {
-					mTxLog.Errorf("failed to send tx %v to network: %v", signedTx.Hash().String(), err)
+					mTxLog.Errorf("failed to send tx %v to network: %v", txHash.String(), err)
 					continue
 				}
-				mTxLog.Infof("signed tx sent to the network: %v", signedTx.Hash().String())
+				mTxLog.Infof("signed tx sent to the network: %v", txHash.String())
 				if mTx.status == MonitoredTxStatusCreated {
 					// update tx status to sent
 					mTx.status = MonitoredTxStatusSent
@@ -398,7 +405,7 @@ func (c *Client) monitorTxs(ctx context.Context) error {
 			log.Infof("waiting signedTx to be mined...")
 
 			// wait tx to get mined
-			mined, err = c.etherman.WaitTxToBeMined(ctx, signedTx, c.cfg.WaitTxToBeMined.Duration)
+			mined, err = c.etherman.WaitTxToBeMined(ctx, signedTx, txHash.String(), c.cfg.WaitTxToBeMined.Duration)
 			if err != nil {
 				mTxLog.Errorf("failed to wait tx to be mined: %v", err)
 				continue
@@ -409,9 +416,9 @@ func (c *Client) monitorTxs(ctx context.Context) error {
 			}
 
 			// get tx receipt
-			receipt, err = c.etherman.GetTxReceipt(ctx, signedTx.Hash())
+			receipt, err = c.etherman.GetTxReceipt(ctx, txHash)
 			if err != nil {
-				mTxLog.Errorf("failed to get tx receipt for tx %v: %v", signedTx.Hash().String(), err)
+				mTxLog.Errorf("failed to get tx receipt for tx %v: %v", txHash.String(), err)
 				continue
 			}
 		}

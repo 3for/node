@@ -200,7 +200,7 @@ func main() {
 			var txIDs = []string{txID}
 			queryFilter := tron.FilterOtherParams{
 				BaseQueryParam: tron.GetDefaultBaseParm(),
-				Method:         tron.GetTransactionByHash,
+				Method:         tron.GetTransactionReceipt,
 				Params:         txIDs,
 			}
 			result, err := QueryTronInfo(network.EventURL, network.EventURLApiKey, queryFilter)
@@ -258,6 +258,7 @@ func sendTriggerContract(client *tron.Client, ownerPriKey *ecdsa.PrivateKey, own
 	if err != nil {
 		return err
 	}
+	println("rawData hash:", hex.EncodeToHex(hash))
 
 	signature, err := crypto.Sign(hash, ownerPriKey)
 	if err != nil {
