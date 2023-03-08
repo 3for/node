@@ -60,6 +60,9 @@ type Config struct {
 	// Maximum size, in gas size, a sequence can reach
 	MaxSequenceSize MaxSequenceSize `mapstructure:"MaxSequenceSize"`
 
+	// Maximum size, in energy size, a sequence can reach
+	MaxEnergySize MaxSequenceSize `mapstructure:"MaxSequenceSize"`
+
 	// Maximum allowed failed counter for the tx before it becomes invalid
 	MaxAllowedFailedCounter uint64 `mapstructure:"MaxAllowedFailedCounter"`
 

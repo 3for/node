@@ -778,6 +778,37 @@ func (etherMan *Client) WaitTxToBeMined(ctx context.Context, tx *types.Transacti
 	return false, errors.New("L1ChainType should be 'Tron' or 'Eth'")
 }
 
+func (etherMan *Client) TronEstimateEnergy(sender, contract common.Address, data []byte) (uint64, error) {
+	type requestParam struct {
+		from     common.Address `json:"from"`
+		to       common.Address `json:"to"`
+		gas      uint64         `json:"gas",omitempty`
+		gasPrice uint64         `json:"gasPrice",omitempty`
+		value    *big.Int       `json:"value",omitempty`
+		data     []byte         `json:"data"`
+	}
+	request := requestParam{
+		from: sender,
+		to:   sender,
+		data: data,
+	}
+	requestByte, err := json.Marshal(request)
+	if err != nil {
+		return 0, err
+	}
+	var params = []string{hex.EncodeToString(requestByte)}
+	queryFilter := tron.FilterOtherParams{
+		BaseQueryParam: tron.GetDefaultBaseParm(),
+		Method:         tron.EstimateEnergy,
+		Params:         params,
+	}
+	raw, err := QueryTronInfo(etherMan.cfg.TronGrid.Url, etherMan.cfg.TronGrid.ApiKey, queryFilter)
+	if err != nil {
+		return 0, err
+	}
+	return strconv.ParseUint(hex.EncodeToString(raw), 16, 64)
+}
+
 // EstimateGasSequenceBatches estimates gas for sending batches
 func (etherMan *Client) EstimateGasSequenceBatches(sender common.Address, sequences []ethmanTypes.Sequence) (*types.Transaction, error) {
 	opts, err := etherMan.getAuthByAddress(sender)
@@ -790,8 +821,23 @@ func (etherMan *Client) EstimateGasSequenceBatches(sender common.Address, sequen
 	if err != nil {
 		return nil, err
 	}
-
-	return tx, nil
+	switch etherMan.cfg.L1ChainType {
+	case "Eth":
+		return tx, nil
+	case "Tron":
+		energyAmount, err := etherMan.TronEstimateEnergy(sender, etherMan.cfg.PoEAddr, tx.Data())
+		if err != nil {
+			return nil, err
+		}
+		baseTx := &types.LegacyTx{
+			To:   &etherMan.cfg.PoEAddr,
+			Data: tx.Data(),
+			Gas:  energyAmount,
+		}
+		txTron := types.NewTx(baseTx)
+		return txTron, nil
+	}
+	return nil, errors.New("L1ChainType should be 'Tron' or 'Eth'")
 }
 
 // BuildSequenceBatchesTxData builds a []bytes to be sent to the PoE SC method SequenceBatches.
@@ -2432,6 +2478,10 @@ func (etherMan *Client) LoadAuthFromKeyStore(path, password string) (*bind.Trans
 	log.Infof("loaded authorization for address: %v", auth.From.String())
 	etherMan.auth[auth.From] = auth
 	return &auth, nil
+}
+
+func (etherMan *Client) GetL1ChainType() string {
+	return etherMan.cfg.L1ChainType
 }
 
 // newKeyFromKeystore creates an instance of a keystore key from a keystore file

@@ -18,6 +18,7 @@ const (
 	BlockByHash           = "eth_getBlockByHash"
 	GetTransactionByHash  = "eth_getTransactionByHash"
 	HeaderByNumber        = "eth_getBlockByNumber"
+	EstimateEnergy        = "eth_estimateGas"
 	MAXQueryAddress       = 3
 )
 

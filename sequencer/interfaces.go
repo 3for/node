@@ -36,6 +36,7 @@ type etherman interface {
 	GetLastBatchTimestamp() (uint64, error)
 	GetLatestBlockTimestamp(ctx context.Context) (uint64, error)
 	BuildSequenceBatchesTxData(sender common.Address, sequences []ethmanTypes.Sequence) (to *common.Address, data []byte, err error)
+	GetL1ChainType() string
 }
 
 // stateInterface gathers the methods required to interact with the state.
