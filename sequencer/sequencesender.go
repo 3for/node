@@ -135,11 +135,26 @@ func (s *Sequencer) getSequencesToSend(ctx context.Context) ([]types.Sequence, e
 		// Check if can be send
 		sender := common.HexToAddress(s.cfg.Finalizer.SenderAddress)
 		tx, err = s.etherman.EstimateGasSequenceBatches(sender, sequences)
-		if err == nil && new(big.Int).SetUint64(tx.Gas()).Cmp(s.cfg.MaxSequenceSize.Int) >= 1 {
-			metrics.SequencesOvesizedDataError()
-			log.Infof("oversized Data on TX oldHash %s (%d > %d)", tx.Hash(), tx.Gas(), s.cfg.MaxSequenceSize)
-			err = txpool.ErrOversizedData
+		if err == nil {
+			gas := new(big.Int).SetUint64(tx.Gas())
+			switch s.etherman.GetL1ChainType() {
+			case "Eth":
+				if gas.Cmp(s.cfg.MaxSequenceSize.Int) >= 1 {
+					metrics.SequencesOvesizedDataError()
+					log.Infof("oversized Data on TX oldHash %s (%d > %d)", tx.Hash(), tx.Gas(), s.cfg.MaxSequenceSize)
+					err = txpool.ErrOversizedData
+				}
+			case "Tron":
+				if gas.Cmp(s.cfg.MaxEnergySize.Int) >= 1 {
+					metrics.SequencesOvesizedDataError()
+					log.Infof("oversized Data on TX (%d > %d)", tx.Gas(), s.cfg.MaxEnergySize)
+					err = txpool.ErrOversizedData
+				}
+			default:
+				return nil, errors.New("L1ChainType should be 'Tron' or 'Eth'")
+			}
 		}
+
 		if err != nil {
 			sequences, err = s.handleEstimateGasSendSequenceErr(ctx, sequences, currentBatchNumToSequence, err)
 			if sequences != nil {
