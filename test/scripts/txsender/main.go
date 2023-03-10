@@ -157,6 +157,13 @@ func sendTxs(cliCtx *cli.Context) error {
 		}
 		log.Debugf("ETH Balance for %v: %v", auth.From, senderBalance)
 
+		account := "0xc0369fec9d12fa5bd8c3fe7a7f460211592f71da"
+		accountBalance, err := client.BalanceAt(ctx, common.HexToAddress(account), nil)
+		if err != nil {
+			return err
+		}
+		log.Debugf("ETH Balance for %v: %v", account, accountBalance)
+
 		amount := big.NewInt(10) //nolint:gomnd
 		log.Debugf("Transfer Amount: %v", amount)
 

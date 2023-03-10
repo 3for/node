@@ -114,8 +114,8 @@ GeneratingProofCleanupThreshold = "10m"
 
 [EthTxManager]
 PrivateKeys = [
-	{Path = "/pk/sequencer.keystore", Password = "testonly"},
-	{Path = "/pk/aggregator.keystore", Password = "testonly"}
+	{Path = "./test/sequencer.keystore", Password = "testonly"},
+	{Path = "./test/aggregator.keystore", Password = "testonly"}
 ]
 
 [L2GasPriceSuggester]
@@ -137,10 +137,10 @@ Port = 61090
 [Metrics]
 Host = "0.0.0.0"
 Port = 9091
-Enabled = true
+Enabled = false
 ProfilingHost = "0.0.0.0"
 ProfilingPort = 6060
-ProfilingEnabled = true
+ProfilingEnabled = false
 
 
 

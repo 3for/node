@@ -708,7 +708,7 @@ func (etherMan *Client) TronWaitMined(ctx context.Context, txHash string) (*type
 	queryTicker := time.NewTicker(time.Second)
 	defer queryTicker.Stop()
 
-	log.Info("hash", txHash)
+	log.Info("TronWaitMined txHash:", txHash)
 	for {
 		receipt, err := etherMan.TronTransactionReceipt(txHash)
 		if err == nil {
@@ -741,6 +741,9 @@ func (etherMan *Client) TronWaitTxToBeMined(parentCtx context.Context, txHash st
 		log.Errorf("error waiting tx %s to be mined: %w", txHash, err)
 		return err
 	}
+	if receipt == nil {
+		return nil
+	}
 	if receipt.Status == types.ReceiptStatusFailed {
 		// Get revert reason
 		/*reason, reasonErr := etherMan.TronRevertReason(ctx, txHash, receipt.BlockNumber)
@@ -748,7 +751,7 @@ func (etherMan *Client) TronWaitTxToBeMined(parentCtx context.Context, txHash st
 			reason = reasonErr.Error()
 		}
 		return fmt.Errorf("transaction has failed, reason: %s, receipt: %+v. ", reason, receipt)*/
-		return fmt.Errorf("transaction has failed, receipt: %+v. ", receipt)
+		return context.DeadlineExceeded
 	}
 	log.Debug("Transaction successfully mined: ", txHash)
 	return nil
@@ -1086,14 +1089,11 @@ func (etherMan *Client) forcedBatchEvent(ctx context.Context, vLog types.Log, bl
 		if err != nil {
 			return err
 		} else if isPending {
-			return fmt.Errorf("error: tx is still pending. TxHash: %s", tx.Hash().String())
+			return fmt.Errorf("error: tx is still pending. TxHash: %s", tx.Hash)
 		}
-		msg, err := tx.AsMessage(types.NewLondonSigner(tx.ChainId()), big.NewInt(0))
-		if err != nil {
-			return err
-		}
-		if fb.Sequencer == msg.From() {
-			txData := tx.Data()
+
+		if fb.Sequencer == common.HexToAddress(tx.From) {
+			txData := common.Hex2Bytes(strings.TrimPrefix(tx.Input, "0x"))
 			// Extract coded txs.
 			// Load contract ABI
 			abi, err := abi.JSON(strings.NewReader(polygonzkevm.PolygonzkevmABI))
@@ -1180,24 +1180,30 @@ func (etherMan *Client) UnpackLog(contractABI abi.ABI, out interface{}, event st
 	return abi.ParseTopics(out, indexed, log.Topics[1:])
 }
 
-type rpcTransaction struct {
-	tx *types.Transaction
-	txExtraInfo
-}
-
 type txExtraInfo struct {
 	BlockNumber *string         `json:"blockNumber,omitempty"`
 	BlockHash   *common.Hash    `json:"blockHash,omitempty"`
 	From        *common.Address `json:"from,omitempty"`
 }
 
-func UnmarshalRPCTxJSON(tx *rpcTransaction, msg []byte) (*types.Transaction, error) {
-	if err := json.Unmarshal(msg, &tx.tx); err != nil {
-		return nil, err
-	}
-	return tx.tx, json.Unmarshal(msg, &tx.txExtraInfo)
+type newTransaction struct {
+	Hash  string `json:"hash,omitempty"`
+	Input string `json:"input,omitempty"`
+	Nonce string `json:"nonce"`
+
+	BlockNumber string `json:"blockNumber,omitempty"`
+	BlockHash   string `json:"blockHash,omitempty"`
+	From        string `json:"from,omitempty"`
 }
 
+type FilterNewTxResponse struct {
+	tron.BaseQueryParam
+	Result newTransaction `json:result`
+}
+type rpcTransaction struct {
+	*types.Transaction
+	txExtraInfo
+}
 type FilterRPCTxResponse struct {
 	tron.BaseQueryParam
 	Result rpcTransaction `json:result`
@@ -1210,7 +1216,7 @@ type rpcBlock struct {
 }
 type rpcBlockAndHeader struct {
 	head TronHeader
-	rpcBlock
+	//rpcBlock
 }
 type FilterBlockResponse struct {
 	tron.BaseQueryParam
@@ -1253,7 +1259,7 @@ type TronHeader struct {
 }
 
 // TronTransactionByHash returns the transaction with the given hash.
-func (etherMan *Client) TronTransactionByHash(hash common.Hash) (tx *types.Transaction, isPending bool, err error) {
+func (etherMan *Client) TronTransactionByHash(hash common.Hash) (tx *newTransaction, isPending bool, err error) {
 	var params = []string{hash.Hex()}
 	queryFilter := tron.FilterOtherParams{
 		BaseQueryParam: tron.GetDefaultBaseParm(),
@@ -1266,16 +1272,21 @@ func (etherMan *Client) TronTransactionByHash(hash common.Hash) (tx *types.Trans
 	} else if err != nil {
 		return nil, false, err
 	}
-	var transaction FilterRPCTxResponse
-	if err := json.Unmarshal(result, &transaction); err != nil {
-		return nil, false, err
+
+	fmt.Println("TronTransactionByHash result:", string(result))
+
+	var naiveTronResponse tron.TronTxResponse
+	var filterNewTx FilterNewTxResponse
+	if err := json.Unmarshal(result, &naiveTronResponse); err != nil {
+		if err := json.Unmarshal(result, &filterNewTx); err != nil {
+			return nil, false, err
+		}
+		return &filterNewTx.Result, filterNewTx.Result.BlockNumber == "", nil
 	}
-	var rpcTransactionJson *rpcTransaction
-	tx, err = UnmarshalRPCTxJSON(rpcTransactionJson, result)
-	if err != nil {
-		return nil, false, err
+	if naiveTronResponse.Result == "" { //for {"jsonrpc":"2.0","id":"37","result":null}
+		return nil, false, ethereum.NotFound
 	}
-	return tx, transaction.Result.BlockNumber == nil, nil
+	return nil, false, ethereum.NotFound
 }
 
 // TronBlockByHash returns the given full block.
@@ -1350,13 +1361,21 @@ func (etherMan *Client) sequencedBatchesEvent(ctx context.Context, vLog types.Lo
 		if err != nil {
 			return err
 		} else if isPending {
-			return fmt.Errorf("error tx is still pending. TxHash: %s", tx.Hash().String())
+			return fmt.Errorf("error tx is still pending. TxHash: %s", tx.Hash)
 		}
-		msg, err := tx.AsMessage(types.NewLondonSigner(tx.ChainId()), big.NewInt(0))
+
+		str := tx.Nonce
+		base := 10
+		if strings.HasPrefix(str, "0x") {
+			str = str[2:]
+			base = 16
+		}
+		nonce, err := strconv.ParseUint(str, base, 0)
 		if err != nil {
-			return err
+			return fmt.Errorf("could not parse tx.Nonce, err:", err)
 		}
-		sequences, err := decodeSequences(tx.Data(), sb.NumBatch, msg.From(), vLog.TxHash, msg.Nonce())
+
+		sequences, err := decodeSequences(common.Hex2Bytes(strings.TrimPrefix(tx.Input, "0x")), sb.NumBatch, common.HexToAddress(tx.From), vLog.TxHash, nonce)
 		if err != nil {
 			return fmt.Errorf("error decoding the sequences: %v", err)
 		}
@@ -1589,17 +1608,26 @@ func (etherMan *Client) forceSequencedBatchesEvent(ctx context.Context, vLog typ
 		if err != nil {
 			return err
 		} else if isPending {
-			return fmt.Errorf("error: tx is still pending. TxHash: %s", tx.Hash().String())
+			return fmt.Errorf("error: tx is still pending. TxHash: %s", tx.Hash)
 		}
-		msg, err := tx.AsMessage(types.NewLondonSigner(tx.ChainId()), big.NewInt(0))
-		if err != nil {
-			return err
-		}
+
 		fullBlock, err := etherMan.TronBlockByHash(vLog.BlockHash)
 		if err != nil {
 			return fmt.Errorf("error getting hashParent. BlockNumber: %d. Error: %w", vLog.BlockNumber, err)
 		}
-		sequencedForceBatch, err := decodeSequencedForceBatches(tx.Data(), fsb.NumBatch, msg.From(), vLog.TxHash, fullBlock, msg.Nonce())
+
+		str := tx.Nonce
+		base := 10
+		if strings.HasPrefix(str, "0x") {
+			str = str[2:]
+			base = 16
+		}
+		nonce, err := strconv.ParseUint(str, base, 0)
+		if err != nil {
+			return fmt.Errorf("could not parse tx.Nonce, err:", err)
+		}
+
+		sequencedForceBatch, err := decodeSequencedForceBatches(common.Hex2Bytes(strings.TrimPrefix(tx.Input, "0x")), fsb.NumBatch, common.HexToAddress(tx.From), vLog.TxHash, fullBlock, nonce)
 		if err != nil {
 			return err
 		}
@@ -1848,19 +1876,23 @@ func parseTronBlock(raw []byte) (*types.Block, error) {
 	var body rpcBlock
 	var tronHeaderResp FilterTronHeaderResponse
 	if err := json.Unmarshal(raw, &tronHeaderResp); err != nil {
+		fmt.Println("ZYD parseTronBlock 1111")
 		return nil, err
 	}
 	tronHeader := tronHeaderResp.Result
 	head, err := TronHeader2EthHeader(&tronHeader)
 	if err != nil {
+		fmt.Println("ZYD parseTronBlock 2222")
 		return nil, err
 	}
 
+	fmt.Println("parseTronBlock raw:", string(raw))
 	var tronBlockResp FilterBlockResponse
 	if err := json.Unmarshal(raw, &tronBlockResp); err != nil {
+		fmt.Println("ZYD parseTronBlock 3333")
 		return nil, err
 	}
-	body = tronBlockResp.Result.rpcBlock
+	//body = tronBlockResp.Result.rpcBlock
 	/*// Quick-verify transaction and uncle lists. This mostly helps with debugging the server.
 	if head.UncleHash == types.EmptyUncleHash && len(body.UncleHashes) > 0 {
 		return nil, fmt.Errorf("server returned non-empty uncle list but block header indicates no uncles")
@@ -1879,10 +1911,12 @@ func parseTronBlock(raw []byte) (*types.Block, error) {
 
 	// Fill the sender cache of transactions in the block.
 	txs := make([]*types.Transaction, len(body.Transactions))
-	for i, tx := range body.Transactions {
+	/*for i, tx := range body.Transactions {
 		txs[i] = tx.tx
-	}
-	return types.NewBlockWithHeader(head).WithBody(txs, uncles).WithWithdrawals(body.Withdrawals), nil
+	}*/ // TODO, ZYD
+
+	fmt.Println("ZYD parseTronBlock 4444")
+	return types.NewBlockWithHeader(head).WithBody(txs, uncles), nil
 }
 
 // TronBlockByNumber returns a block from the current canonical chain. If number is nil, the
@@ -2093,7 +2127,8 @@ func (etherMan *Client) GetTx(ctx context.Context, txHash common.Hash) (*types.T
 	case "Eth":
 		return etherMan.EthClient.TransactionByHash(ctx, txHash)
 	case "Tron":
-		return etherMan.TronTransactionByHash(txHash)
+		etherMan.TronTransactionByHash(txHash)
+		return nil, false, nil //TODO. ZYD. Need to map TronTx to ethTx
 	}
 	return nil, false, errors.New("L1ChainType should be 'Tron' or 'Eth'")
 }
@@ -2107,15 +2142,27 @@ func (etherMan *Client) TronTransactionReceipt(txID string) (*types.Receipt, err
 		Params:         txIDs,
 	}
 	raw, err := QueryTronInfo(etherMan.cfg.TronGrid.Url, etherMan.cfg.TronGrid.ApiKey, queryFilter)
-	fmt.Println(string(raw)) //TODO. ZYD. DEBUG
+	fmt.Println("TronTransactionReceipt:", string(raw)) //TODO. ZYD. DEBUG
 	if err != nil {
+		fmt.Println("ZYD1111")
 		return nil, err
 	}
 	var transactionReceipt tron.FilterTxResponse
-	if err := json.Unmarshal(raw, &transactionReceipt); err != nil {
-		return nil, err
+	var naiveTronResponse tron.TronTxResponse
+	if err := json.Unmarshal(raw, &naiveTronResponse); err != nil {
+		fmt.Println("ZYD2222")
+		if err := json.Unmarshal(raw, &transactionReceipt); err != nil {
+			fmt.Println("ZYD4444")
+			return nil, err
+		}
+		fmt.Println("ZYD5555")
+		return &transactionReceipt.Result, nil
 	}
-	return &transactionReceipt.Result, nil
+	if naiveTronResponse.Result == "" { //for {"jsonrpc":"2.0","id":"37","result":null}
+		fmt.Println("ZYD3333")
+		return nil, nil
+	}
+	return nil, nil
 }
 
 // GetTxReceipt function gets ethereum tx receipt
@@ -2331,6 +2378,9 @@ func (etherMan *Client) CheckTxWasMined(ctx context.Context, txHash common.Hash)
 			return false, nil, err
 		}
 
+		if receipt == nil {
+			return false, nil, nil
+		}
 		return true, receipt, nil
 	}
 	return false, nil, errors.New("L1ChainType should be 'Tron' or 'Eth'")

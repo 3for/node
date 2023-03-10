@@ -52,6 +52,11 @@ type FilterTxResponse struct {
 	Result types.Receipt `json:result`
 }
 
+type TronTxResponse struct {
+	BaseQueryParam
+	Result string `json:result`
+}
+
 type FilterTxNumberResponse struct {
 	BaseQueryParam
 	Result string `json:result`

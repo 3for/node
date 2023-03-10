@@ -67,8 +67,8 @@ const (
 	DefaultL1EventURL                   = "https://api.shasta.trongrid.io" // event server
 	DefaultL1EventURLApiKey             = "xxxxxxxx"
 
-	DefaultL2NetworkURL                 = "http://localhost:8123"
-	DefaultL2NetworkWebSocketURL        = "ws://localhost:8133"
+	DefaultL2NetworkURL                 = "http://localhost:8123" //"http://107.22.222.8:8123"
+	DefaultL2NetworkWebSocketURL        = "ws://localhost:8133"   //"ws://107.22.222.8:8133"
 	DefaultL2ChainID             uint64 = 1001
 	DefaultL2ChainType                  = "Eth"
 	DefaultL2EventURL                   = ""

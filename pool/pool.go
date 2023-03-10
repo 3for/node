@@ -102,6 +102,13 @@ func (p *Pool) PreExecuteTx(ctx context.Context, tx types.Transaction) (state.ZK
 		return state.ZKCounters{}, err
 	}
 
+	if nonce == 0 { // for genesis account
+		nonce, err = p.state.GetNonce(ctx, sender, 0, nil)
+		if err != nil {
+			return state.ZKCounters{}, err
+		}
+	}
+
 	processBatchResponse, err := p.state.PreProcessTransaction(ctx, &tx, nonce, nil)
 	if err != nil {
 		return state.ZKCounters{}, err
