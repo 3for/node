@@ -145,11 +145,11 @@ func (s *Sequencer) getSequencesToSend(ctx context.Context) ([]types.Sequence, e
 					err = txpool.ErrOversizedData
 				}
 			case "Tron":
-				if gas.Cmp(s.cfg.MaxEnergySize.Int) >= 1 {
+				/*if gas.Cmp(s.cfg.MaxEnergySize.Int) >= 1 {
 					metrics.SequencesOvesizedDataError()
 					log.Infof("oversized Data on TX (%d > %d)", tx.Gas(), s.cfg.MaxEnergySize)
 					err = txpool.ErrOversizedData
-				}
+				}*/ // TODO ZYD
 			default:
 				return nil, errors.New("L1ChainType should be 'Tron' or 'Eth'")
 			}

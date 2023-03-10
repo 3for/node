@@ -828,10 +828,7 @@ func (etherMan *Client) EstimateGasSequenceBatches(sender common.Address, sequen
 	case "Eth":
 		return tx, nil
 	case "Tron":
-		energyAmount, err := etherMan.TronEstimateEnergy(sender, etherMan.cfg.PoEAddr, tx.Data())
-		if err != nil {
-			return nil, err
-		}
+		energyAmount := etherMan.cfg.TronFeeLimit //TODO, ZYD
 		baseTx := &types.LegacyTx{
 			To:   &etherMan.cfg.PoEAddr,
 			Data: tx.Data(),
