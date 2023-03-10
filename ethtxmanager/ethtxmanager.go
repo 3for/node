@@ -155,8 +155,6 @@ func (c *Client) buildResult(ctx context.Context, mTx monitoredTx) (MonitoredTxR
 	history := mTx.historyHashSlice()
 	txs := make(map[common.Hash]TxResult, len(history))
 
-	return MonitoredTxResult{}, nil //ZYD TODO.
-
 	for _, txHash := range history {
 		tx, _, err := c.etherman.GetTx(ctx, txHash)
 		if !errors.Is(err, ethereum.NotFound) && err != nil {
@@ -475,8 +473,6 @@ func (c *Client) shouldContinueToMonitorThisTx(ctx context.Context, receipt *typ
 	if receipt.Status == types.ReceiptStatusSuccessful {
 		return false
 	}
-
-	return false //TODO ZYD
 
 	tx, _, err := c.etherman.GetTx(ctx, receipt.TxHash)
 	if err != nil {

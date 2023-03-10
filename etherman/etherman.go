@@ -2170,8 +2170,16 @@ func (etherMan *Client) GetTx(ctx context.Context, txHash common.Hash) (*types.T
 	case "Eth":
 		return etherMan.EthClient.TransactionByHash(ctx, txHash)
 	case "Tron":
-		etherMan.TronTransactionByHash(txHash)
-		return nil, false, nil //TODO. ZYD. Need to map TronTx to ethTx
+		tronTx, _, err := etherMan.TronTransactionByHash(txHash)
+		if err != nil {
+			return nil, false, err
+		}
+		baseTx := &types.LegacyTx{
+			To:   &etherMan.cfg.PoEAddr,
+			Data: []byte(strings.TrimPrefix(tronTx.Input, "0x")),
+		}
+		ethTx := types.NewTx(baseTx)
+		return ethTx, true, nil
 	}
 	return nil, false, errors.New("L1ChainType should be 'Tron' or 'Eth'")
 }
