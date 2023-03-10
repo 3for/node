@@ -731,18 +731,18 @@ func (etherMan *Client) TronWaitMined(ctx context.Context, txHash string) (*type
 }
 
 // TronWaitTxToBeMined waits until a tx has been mined or the given timeout expires.
-func (etherMan *Client) TronWaitTxToBeMined(parentCtx context.Context, txHash string, timeout time.Duration) error {
+func (etherMan *Client) TronWaitTxToBeMined(parentCtx context.Context, txHash string, timeout time.Duration) (bool, error) {
 	ctx, cancel := context.WithTimeout(parentCtx, timeout)
 	defer cancel()
 	receipt, err := etherMan.TronWaitMined(ctx, txHash)
 	if errors.Is(err, context.DeadlineExceeded) {
-		return err
+		return false, err
 	} else if err != nil {
 		log.Errorf("error waiting tx %s to be mined: %w", txHash, err)
-		return err
+		return false, err
 	}
 	if receipt == nil {
-		return nil
+		return false, nil
 	}
 	if receipt.Status == types.ReceiptStatusFailed {
 		// Get revert reason
@@ -751,10 +751,10 @@ func (etherMan *Client) TronWaitTxToBeMined(parentCtx context.Context, txHash st
 			reason = reasonErr.Error()
 		}
 		return fmt.Errorf("transaction has failed, reason: %s, receipt: %+v. ", reason, receipt)*/
-		return context.DeadlineExceeded
+		return false, context.DeadlineExceeded
 	}
 	log.Debug("Transaction successfully mined: ", txHash)
-	return nil
+	return true, nil
 }
 
 // WaitTxToBeMined waits for an L1 tx to be mined. It will return error if the tx is reverted or timeout is exceeded
@@ -770,13 +770,7 @@ func (etherMan *Client) WaitTxToBeMined(ctx context.Context, tx *types.Transacti
 		}
 		return true, nil
 	case "Tron":
-		err := etherMan.TronWaitTxToBeMined(ctx, txHash, timeout)
-		if errors.Is(err, context.DeadlineExceeded) {
-			return false, nil
-		}
-		if err != nil {
-			return false, err
-		}
+		return etherMan.TronWaitTxToBeMined(ctx, txHash, timeout)
 	}
 	return false, errors.New("L1ChainType should be 'Tron' or 'Eth'")
 }
