@@ -10,7 +10,7 @@ Outputs = ["stderr"]
 User = "state_user"
 Password = "state_password"
 Name = "state_db"
-Host = "107.22.222.8"
+Host = "54.160.226.39"
 Port = "5432"
 EnableLog = false
 MaxConns = 200
@@ -21,16 +21,16 @@ FreeClaimGasLimit = 1500000
 	User = "pool_user"
 	Password = "pool_password"
 	Name = "pool_db"
-	Host = "107.22.222.8"
+	Host = "54.160.226.39"
 	Port = "5433"
 	EnableLog = false
 	MaxConns = 200
 
 [Etherman]
 URL = "grpc.shasta.trongrid.io:50051" # Tron as L1
-PoEAddr = "0x6033536B9A7E72BD8CB06E1B08BB468E2CA07D02" # TJjsMf7tZzLqcmmERmG5gYbJEw7eFyxisT
+PoEAddr = "0x9824D88FF997BBD175EBB9D8433031558D8976DC" # TPqfrKRfiDvE9kdwuACMM7ojYgxJiAhUpz
 MaticAddr = "0x4962D0DA9D3CD96BB2B61B2BE51A927E8C781782" # TGfEhuaGNiBeGZyW7Bzn3efg8cjhyFsVoV
-GlobalExitRootManagerAddr = "0xE60CF445CD13FA2EC0BF22874382C466522530BA" # TWwbwFd1suUK59MwhRu3z3WBuRKeyvjRGM
+GlobalExitRootManagerAddr = "0x85D85B1413A27F2DF7215F3DE9AFD2C7EFD5A282" # TNAv4EbbePN7Q3yhGHD9BgrfY1cSAnvFMt
 L1ChainID = 1001 # Tron chainID
 L1ChainType = "Tron" # Tron or Eth
 TronFeeLimit = 200000000 # Tron tx FeeLimit
@@ -57,7 +57,7 @@ DefaultSenderAddress = "0x1111111111111111111111111111111111111111"
 [Synchronizer]
 SyncInterval = "1s"
 SyncChunkSize = 100
-GenBlockNumber = 32039308 # deploymentBlockNumber，sync start block
+GenBlockNumber = 32042981 # deploymentBlockNumber，sync start block
 
 [Sequencer]
 MaxSequenceSize = "2000000"
@@ -126,10 +126,10 @@ Factor = 0.5
 DefaultGasPriceWei = 1000000000
 
 [MTClient]
-URI  = "107.22.222.8:50061" # do not run zkevm-prover in docker, set IP
+URI  = "54.160.226.39:50061" # do not run zkevm-prover in docker, set IP
 
 [Executor]
-URI = "107.22.222.8:50071" # do not run zkevm-prover in docker, set IP
+URI = "54.160.226.39:50071" # do not run zkevm-prover in docker, set IP
 
 [BroadcastServer]
 Host = "0.0.0.0"
