@@ -10,7 +10,7 @@ Outputs = ["stderr"]
 User = "state_user"
 Password = "state_password"
 Name = "state_db"
-Host = "54.160.226.39"
+Host = "107.22.222.8"
 Port = "5432"
 EnableLog = false
 MaxConns = 200
@@ -21,7 +21,7 @@ FreeClaimGasLimit = 1500000
 	User = "pool_user"
 	Password = "pool_password"
 	Name = "pool_db"
-	Host = "54.160.226.39"
+	Host = "107.22.222.8"
 	Port = "5433"
 	EnableLog = false
 	MaxConns = 200
@@ -109,11 +109,13 @@ VerifyProofInterval = "30s"
 TxProfitabilityCheckerType = "acceptall"
 TxProfitabilityMinReward = "1.1"
 ProofStatePollingInterval = "5s"
-SenderAddress = "0x70997970c51812dc3a010c7d01b50e0d17dc79c8"
+SenderAddress = "0xC0369FEC9D12FA5BD8C3FE7A7F460211592F71DA"  # correspond with PrivateKeys
 CleanupLockedProofsInterval = "2m"
 GeneratingProofCleanupThreshold = "10m"
 
 [EthTxManager]
+FrequencyToMonitorTxs = "1s"
+WaitTxToBeMined = "2m"
 PrivateKeys = [
 	{Path = "./test/sequencer.keystore", Password = "testonly"},
 	{Path = "./test/aggregator.keystore", Password = "testonly"}
@@ -126,10 +128,10 @@ Factor = 0.5
 DefaultGasPriceWei = 1000000000
 
 [MTClient]
-URI  = "54.160.226.39:50061" # do not run zkevm-prover in docker, set IP
+URI  = "127.0.0.1:50061" # do not run zkevm-prover in docker, set IP
 
 [Executor]
-URI = "54.160.226.39:50071" # do not run zkevm-prover in docker, set IP
+URI = "127.0.0.1:50071" # do not run zkevm-prover in docker, set IP
 
 [BroadcastServer]
 Host = "0.0.0.0"
