@@ -947,7 +947,7 @@ func (etherMan *Client) BuildTrustedVerifyBatchesTxData(lastVerifiedBatch, newVe
 		if err != nil {
 			return nil, nil, err
 		}
-		callData, err := polygonzkevmABI.Pack("verifyBatchesTrustedAggregator", pendStateNum,
+		callData, err := polygonzkevmABI.Pack("verifyBatchesTrustedAggregator", (uint64)(pendStateNum),
 			lastVerifiedBatch,
 			newVerifiedBatch,
 			newLocalExitRoot,
@@ -2498,6 +2498,9 @@ func (etherMan *Client) GetRevertMessage(ctx context.Context, tx *types.Transact
 	receipt, err := etherMan.GetTxReceipt(ctx, tx.Hash())
 	if err != nil {
 		return "", err
+	}
+	if receipt == nil {
+		return "", nil
 	}
 	//TODO, ZYD, does Tron support RevertReason?
 	if receipt.Status == types.ReceiptStatusFailed {

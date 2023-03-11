@@ -421,6 +421,10 @@ func (c *Client) monitorTxs(ctx context.Context) error {
 				mTxLog.Errorf("failed to get tx receipt for tx %v: %v", txHash.String(), err)
 				continue
 			}
+			if receipt == nil { //no receipt for that txHash yet
+				fmt.Println("#######ZYD no receipt for that txHash yet:", txHash.String())
+				continue
+			}
 		}
 
 		mTx.blockNumber = receipt.BlockNumber
