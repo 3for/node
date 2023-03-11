@@ -28,9 +28,9 @@ FreeClaimGasLimit = 1500000
 
 [Etherman]
 URL = "grpc.shasta.trongrid.io:50051" # Tron as L1
-PoEAddr = "0x3AD48B6893D634DCF5561E4B295C9E43C88F42E7" # TFLGp3JATg12qR4EvAUKBKjWJFbKQ3APzR
+PoEAddr = "0x6033536B9A7E72BD8CB06E1B08BB468E2CA07D02" # TJjsMf7tZzLqcmmERmG5gYbJEw7eFyxisT
 MaticAddr = "0x4962D0DA9D3CD96BB2B61B2BE51A927E8C781782" # TGfEhuaGNiBeGZyW7Bzn3efg8cjhyFsVoV
-GlobalExitRootManagerAddr = "0x4CBA816BFE47D9979A8539B1937E5C66A55A08CA" # TGxunGgY6Ad3xPcrcztF3WEXUt4w31xNZw
+GlobalExitRootManagerAddr = "0xE60CF445CD13FA2EC0BF22874382C466522530BA" # TWwbwFd1suUK59MwhRu3z3WBuRKeyvjRGM
 L1ChainID = 1001 # Tron chainID
 L1ChainType = "Tron" # Tron or Eth
 TronFeeLimit = 200000000 # Tron tx FeeLimit
@@ -57,7 +57,7 @@ DefaultSenderAddress = "0x1111111111111111111111111111111111111111"
 [Synchronizer]
 SyncInterval = "1s"
 SyncChunkSize = 100
-GenBlockNumber = 32024196 # deploymentBlockNumber，sync start block
+GenBlockNumber = 32039308 # deploymentBlockNumber，sync start block
 
 [Sequencer]
 MaxSequenceSize = "2000000"
