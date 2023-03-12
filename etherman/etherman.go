@@ -770,7 +770,14 @@ func (etherMan *Client) WaitTxToBeMined(ctx context.Context, tx *types.Transacti
 		}
 		return true, nil
 	case "Tron":
-		return etherMan.TronWaitTxToBeMined(ctx, txHash, timeout)
+		_, err := etherMan.TronWaitTxToBeMined(ctx, txHash, timeout)
+		if errors.Is(err, context.DeadlineExceeded) {
+			return false, nil
+		}
+		if err != nil {
+			return false, err
+		}
+		return true, nil
 	}
 	return false, errors.New("L1ChainType should be 'Tron' or 'Eth'")
 }
@@ -2205,7 +2212,7 @@ func (etherMan *Client) TronTransactionReceipt(txID string) (*types.Receipt, err
 	}
 	if naiveTronResponse.Result == "" { //for {"jsonrpc":"2.0","id":"37","result":null}
 		fmt.Println("ZYD3333")
-		return nil, nil
+		return nil, ethereum.NotFound
 	}
 	return nil, nil
 }

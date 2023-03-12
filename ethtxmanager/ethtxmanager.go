@@ -247,7 +247,7 @@ func (c *Client) monitorTxs(ctx context.Context) error {
 
 	log.Infof("found %v monitored tx to process", len(mTxs))
 
-	for _, mTx := range mTxs {
+	for index, mTx := range mTxs {
 		mTx := mTx // force variable shadowing to avoid pointer conflicts
 		mTxLog := log.WithFields("monitoredTx", mTx.id)
 		mTxLog.Info("processing")
@@ -410,7 +410,11 @@ func (c *Client) monitorTxs(ctx context.Context) error {
 				mTxLog.Errorf("failed to wait tx to be mined: %v", err)
 				continue
 			}
+			fmt.Println("ZYD mined status:", mined)
 			if !mined {
+				if index == len(mTxs)-1 {
+					time.Sleep(c.cfg.WaitTxToBeMined.Duration)
+				} //TODO. ZYD. Sleep to pool all txs again
 				log.Infof("signedTx not mined yet and timeout has been reached")
 				continue
 			}
