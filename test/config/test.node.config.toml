@@ -128,10 +128,10 @@ Factor = 0.5
 DefaultGasPriceWei = 1000000000
 
 [MTClient]
-URI  = "127.0.0.1:50061" # do not run zkevm-prover in docker, set IP
+URI  = "54.160.226.39:50061" # do not run zkevm-prover in docker, set IP
 
 [Executor]
-URI = "127.0.0.1:50071" # do not run zkevm-prover in docker, set IP
+URI = "54.160.226.39:50071" # do not run zkevm-prover in docker, set IP
 
 [BroadcastServer]
 Host = "0.0.0.0"
