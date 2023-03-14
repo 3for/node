@@ -244,7 +244,7 @@ services:
 
   zkevm-explorer-l2:
     container_name: zkevm-explorer-l2
-    image: hermeznetwork/hermez-node-blockscout:latest
+    image: hermeznetwork/zkevm-explorer:latest
     ports:
       - 4001:4000
     environment:
@@ -252,7 +252,7 @@ services:
       - SUBNETWORK=Polygon Hermez
       - COIN=ETH
       - ETHEREUM_JSONRPC_VARIANT=geth
-      - ETHEREUM_JSONRPC_HTTP_URL=http://zkevm-explorer-json-rpc:8124
+      - ETHEREUM_JSONRPC_HTTP_URL=http://54.160.226.39:8123
       - DATABASE_URL=postgres://l2_explorer_user:l2_explorer_password@zkevm-explorer-l2-db:5432/l2_explorer_db
       - ECTO_USE_SSL=false
       - MIX_ENV=prod

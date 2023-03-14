@@ -10,7 +10,7 @@ Outputs = ["stderr"]
 User = "state_user"
 Password = "state_password"
 Name = "state_db"
-Host = "107.22.222.8"
+Host = "54.160.226.39"
 Port = "5432"
 EnableLog = false
 MaxConns = 200
@@ -21,25 +21,25 @@ FreeClaimGasLimit = 1500000
 	User = "pool_user"
 	Password = "pool_password"
 	Name = "pool_db"
-	Host = "107.22.222.8"
+	Host = "54.160.226.39"
 	Port = "5433"
 	EnableLog = false
 	MaxConns = 200
 
 [Etherman]
-URL = "grpc.shasta.trongrid.io:50051" # Tron as L1
-PoEAddr = "0x1E1DC12C3FCE9B60A19885F893E4377B52E3FB27" # TCiSvCTvLqqQMV2uXHYs7CJvQ3sTF1qhvd
-MaticAddr = "0x4962D0DA9D3CD96BB2B61B2BE51A927E8C781782" # TGfEhuaGNiBeGZyW7Bzn3efg8cjhyFsVoV
-GlobalExitRootManagerAddr = "0xEC5A6FB3559B0D227E875F414757D996E87A93EF" # TXWvoxUomvR9Uf6TsTmkJacT9ktpg2quHs
+URL = "grpc.nile.trongrid.io:50051" # Tron as L1
+PoEAddr = "0x2808842B4C7570FA8F2567F4B3FAA6D33E14E598" # TDctETHum6mnDdAXhwkxfZaFPL3no58iXb
+MaticAddr = "0xF28846C1A27FFB9E3EF36BEAB1EC02597C54AE2D" # TY5bn8bEZt6nSBRA2c4CyJsKQ2PirGZ3Bn
+GlobalExitRootManagerAddr = "0x868972948DB64BA23BD61FC6CF9339AF13D3AE48" # TNEaCnk9YgyGwTqcx254bkK4zu6FowALH5
 L1ChainID = 1001 # Tron chainID
 L1ChainType = "Tron" # Tron or Eth
 TronFeeLimit = 200000000 # Tron tx FeeLimit
 MultiGasProvider = false
-	[Etherman.Etherscan]
-		ApiKey = "ZYDTESTHERE****"
-	[Etherman.TronGrid]
-		Url = "https://api.shasta.trongrid.io" # Tron Grid, event server
-		ApiKey = "" # Tron Grid API key
+        [Etherman.Etherscan]
+                ApiKey = "ZYDTESTHERE****"
+        [Etherman.TronGrid]
+                Url = "https://nile.trongrid.io" # Tron Grid, event server
+                ApiKey = "" # Tron Grid API key
 
 [RPC]
 Host = "0.0.0.0"
@@ -57,7 +57,7 @@ DefaultSenderAddress = "0x1111111111111111111111111111111111111111"
 [Synchronizer]
 SyncInterval = "1s"
 SyncChunkSize = 100
-GenBlockNumber = 32074083 # deploymentBlockNumber，sync start block
+GenBlockNumber = 34987471 # deploymentBlockNumber，sync start block
 
 [Sequencer]
 MaxSequenceSize = "2000000"

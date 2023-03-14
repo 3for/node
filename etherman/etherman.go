@@ -2325,7 +2325,7 @@ func (etherMan *Client) GetL2ChainID() (uint64, error) {
 		}
 		return (*ret0), nil
 	}
-	return 0, nil
+	return 0, errors.New("L1ChainType should be 'Tron' or 'Eth'")
 }
 
 // GetL2ForkID returns current L2 Fork ID
