@@ -90,13 +90,13 @@ func (s *ClientSynchronizer) Sync() error {
 				return fmt.Errorf("genesis Block number configured is not valid. It is required the block number where the PolygonZkEVM smc was deployed")
 			}
 			log.Info("Setting genesis block")
-			header, err := s.etherMan.HeaderByNumber(s.ctx, big.NewInt(0).SetUint64(s.cfg.GenBlockNumber))
+			header, blockHash, err := s.etherMan.HeaderByNumber(s.ctx, big.NewInt(0).SetUint64(s.cfg.GenBlockNumber))
 			if err != nil {
 				log.Fatal("error getting l1 block header for block ", s.cfg.GenBlockNumber, " : ", err)
 			}
 			lastEthBlockSynced = &state.Block{
 				BlockNumber: header.Number.Uint64(),
-				BlockHash:   header.Hash(),
+				BlockHash:   blockHash, //header.Hash(), //To compatible with Tron header.
 				ParentHash:  header.ParentHash,
 				ReceivedAt:  time.Unix(int64(header.Time), 0),
 			}
@@ -182,7 +182,7 @@ func (s *ClientSynchronizer) syncBlocks(lastEthBlockSynced *state.Block) (*state
 	}
 
 	// Call the blockchain to retrieve data
-	header, err := s.etherMan.HeaderByNumber(s.ctx, nil)
+	header, _, err := s.etherMan.HeaderByNumber(s.ctx, nil)
 	if err != nil {
 		return lastEthBlockSynced, err
 	}
@@ -229,13 +229,13 @@ func (s *ClientSynchronizer) syncBlocks(lastEthBlockSynced *state.Block) (*state
 		}
 		if len(blocks) == 0 { // If there is no events in the checked blocks range and lastKnownBlock > fromBlock.
 			// Store the latest block of the block range. Get block info and process the block
-			fb, err := s.etherMan.EthBlockByNumber(s.ctx, toBlock)
+			fb, blockHash, err := s.etherMan.EthBlockByNumber(s.ctx, toBlock)
 			if err != nil {
 				return lastEthBlockSynced, err
 			}
 			b := etherman.Block{
 				BlockNumber: fb.NumberU64(),
-				BlockHash:   fb.Hash(),
+				BlockHash:   blockHash, //fb.Hash(),
 				ParentHash:  fb.ParentHash(),
 				ReceivedAt:  time.Unix(int64(fb.Time()), 0),
 			}
@@ -245,7 +245,7 @@ func (s *ClientSynchronizer) syncBlocks(lastEthBlockSynced *state.Block) (*state
 			}
 			block := state.Block{
 				BlockNumber: fb.NumberU64(),
-				BlockHash:   fb.Hash(),
+				BlockHash:   blockHash, //fb.Hash(),//To compatible with Tron header.
 				ParentHash:  fb.ParentHash(),
 				ReceivedAt:  time.Unix(int64(fb.Time()), 0),
 			}
@@ -474,7 +474,7 @@ func (s *ClientSynchronizer) checkReorg(latestBlock *state.Block) (*state.Block,
 	latestEthBlockSynced := *latestBlock
 	var depth uint64
 	for {
-		block, err := s.etherMan.EthBlockByNumber(s.ctx, latestBlock.BlockNumber)
+		block, blockHash, err := s.etherMan.EthBlockByNumber(s.ctx, latestBlock.BlockNumber)
 		if err != nil {
 			log.Errorf("error getting latest block synced from blockchain. Block: %d, error: %v", latestBlock.BlockNumber, err)
 			return nil, err
@@ -486,7 +486,7 @@ func (s *ClientSynchronizer) checkReorg(latestBlock *state.Block) (*state.Block,
 			return nil, err
 		}
 		// Compare hashes
-		if (block.Hash() != latestBlock.BlockHash || block.ParentHash() != latestBlock.ParentHash) && latestBlock.BlockNumber > s.cfg.GenBlockNumber {
+		if (blockHash != latestBlock.BlockHash || block.ParentHash() != latestBlock.ParentHash) && latestBlock.BlockNumber > s.cfg.GenBlockNumber {
 			log.Debug("[checkReorg function] => latestBlockNumber: ", latestBlock.BlockNumber)
 			log.Debug("[checkReorg function] => latestBlockHash: ", latestBlock.BlockHash)
 			log.Debug("[checkReorg function] => latestBlockHashParent: ", latestBlock.ParentHash)

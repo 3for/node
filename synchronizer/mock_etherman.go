@@ -21,7 +21,7 @@ type ethermanMock struct {
 }
 
 // EthBlockByNumber provides a mock function with given fields: ctx, blockNumber
-func (_m *ethermanMock) EthBlockByNumber(ctx context.Context, blockNumber uint64) (*types.Block, error) {
+/*func (_m *ethermanMock) EthBlockByNumber(ctx context.Context, blockNumber uint64) (*types.Block, error) {
 	ret := _m.Called(ctx, blockNumber)
 
 	var r0 *types.Block
@@ -41,7 +41,7 @@ func (_m *ethermanMock) EthBlockByNumber(ctx context.Context, blockNumber uint64
 	}
 
 	return r0, r1
-}
+}*/ //TODO. ZYD
 
 // GetLatestBatchNumber provides a mock function with given fields:
 func (_m *ethermanMock) GetLatestBatchNumber() (uint64, error) {

@@ -53,6 +53,7 @@ func TestTrustedStateReorg(t *testing.T) {
 				parentHash := common.HexToHash("0x111")
 				ethHeader := &types.Header{Number: big.NewInt(1), ParentHash: parentHash}
 				ethBlock := types.NewBlockWithHeader(ethHeader)
+				//TODO.ZYD. NOT compatible with Tron header for BlockHash
 				lastBlock := &state.Block{BlockHash: ethBlock.Hash(), BlockNumber: ethBlock.Number().Uint64()}
 
 				m.State.
@@ -358,6 +359,7 @@ func TestForcedBatch(t *testing.T) {
 			parentHash := common.HexToHash("0x111")
 			ethHeader := &types.Header{Number: big.NewInt(1), ParentHash: parentHash}
 			ethBlock := types.NewBlockWithHeader(ethHeader)
+			//TODO.ZYD. NOT compatible with Tron header for BlockHash
 			lastBlock := &state.Block{BlockHash: ethBlock.Hash(), BlockNumber: ethBlock.Number().Uint64()}
 
 			m.State.
@@ -571,6 +573,7 @@ func TestSequenceForcedBatch(t *testing.T) {
 			parentHash := common.HexToHash("0x111")
 			ethHeader := &types.Header{Number: big.NewInt(1), ParentHash: parentHash}
 			ethBlock := types.NewBlockWithHeader(ethHeader)
+			//TODO.ZYD. NOT compatible with Tron header for BlockHash
 			lastBlock := &state.Block{BlockHash: ethBlock.Hash(), BlockNumber: ethBlock.Number().Uint64()}
 
 			m.State.

@@ -485,6 +485,9 @@ func (etherMan *Client) GetRollupInfoByBlockRange(ctx context.Context, fromBlock
 			Address:   decodedAddress,
 			FromBlock: "0x" + strconv.FormatUint(fromBlock, 16),
 		}
+		if toBlock != nil {
+			filterLogs.ToBlock = "0x" + strconv.FormatUint(*toBlock, 16)
+		}
 		blocks, blocksOrder, err := etherMan.readTronEvents(ctx, filterLogs)
 		if err != nil {
 			return nil, nil, err
@@ -671,7 +674,7 @@ func (etherMan *Client) updateGlobalExitRootEvent(ctx context.Context, vLog type
 		if err != nil {
 			return err
 		}
-		fullBlock, err := etherMan.TronBlockByHash(vLog.BlockHash)
+		fullBlock, _, err := etherMan.TronBlockByHash(vLog.BlockHash)
 		if err != nil {
 			return fmt.Errorf("error getting hashParent. BlockNumber: %d. Error: %w", vLog.BlockNumber, err)
 		}
@@ -1162,7 +1165,7 @@ func (etherMan *Client) forcedBatchEvent(ctx context.Context, vLog types.Log, bl
 			forcedBatch.RawTxsData = fb.Transactions
 		}
 		forcedBatch.Sequencer = fb.Sequencer
-		fullBlock, err := etherMan.TronBlockByHash(vLog.BlockHash)
+		fullBlock, _, err := etherMan.TronBlockByHash(vLog.BlockHash)
 		if err != nil {
 			return fmt.Errorf("error getting hashParent. BlockNumber: %d. Error: %w", vLog.BlockNumber, err)
 		}
@@ -1273,6 +1276,7 @@ type FilterTronHeaderResponse struct {
 
 // Tron Header represents a block header in the Ethereum blockchain.
 type TronHeader struct {
+	Hash        common.Hash      `json:"hash"` //added for tron blockhash, because different from eht header.
 	ParentHash  common.Hash      `json:"parentHash"       gencodec:"required"`
 	UncleHash   common.Hash      `json:"sha3Uncles"       gencodec:"required"`
 	Coinbase    common.Address   `json:"miner"`
@@ -1337,7 +1341,7 @@ func (etherMan *Client) TronTransactionByHash(hash common.Hash) (tx *newTransact
 //
 // Note that loading full blocks requires two requests. Use HeaderByHash
 // if you don't need all transactions or uncle headers.
-func (etherMan *Client) TronBlockByHash(hash common.Hash) (*types.Block, error) {
+func (etherMan *Client) TronBlockByHash(hash common.Hash) (*types.Block, common.Hash, error) {
 	var params = []string{hash.Hex()}
 	params = append(params, "true") //set true to get full block
 	queryFilter := tron.FilterOtherParams{
@@ -1347,7 +1351,7 @@ func (etherMan *Client) TronBlockByHash(hash common.Hash) (*types.Block, error) 
 	}
 	raw, err := QueryTronInfo(etherMan.cfg.TronGrid.Url, etherMan.cfg.TronGrid.ApiKey, queryFilter)
 	if err != nil {
-		return nil, err
+		return nil, common.Hash{}, err
 	}
 	return parseTronBlock(raw)
 }
@@ -1424,7 +1428,7 @@ func (etherMan *Client) sequencedBatchesEvent(ctx context.Context, vLog types.Lo
 			return fmt.Errorf("error decoding the sequences: %v", err)
 		}
 		if len(*blocks) == 0 || ((*blocks)[len(*blocks)-1].BlockHash != vLog.BlockHash || (*blocks)[len(*blocks)-1].BlockNumber != vLog.BlockNumber) {
-			fullBlock, err := etherMan.TronBlockByHash(vLog.BlockHash)
+			fullBlock, _, err := etherMan.TronBlockByHash(vLog.BlockHash)
 			if err != nil {
 				return fmt.Errorf("error getting hashParent. BlockNumber: %d. Error: %w", vLog.BlockNumber, err)
 			}
@@ -1555,7 +1559,7 @@ func (etherMan *Client) verifyBatchesTrustedAggregatorEvent(ctx context.Context,
 		trustedVerifyBatch.Aggregator = vb.Aggregator
 
 		if len(*blocks) == 0 || ((*blocks)[len(*blocks)-1].BlockHash != vLog.BlockHash || (*blocks)[len(*blocks)-1].BlockNumber != vLog.BlockNumber) {
-			fullBlock, err := etherMan.TronBlockByHash(vLog.BlockHash)
+			fullBlock, _, err := etherMan.TronBlockByHash(vLog.BlockHash)
 			if err != nil {
 				return fmt.Errorf("error getting hashParent. BlockNumber: %d. Error: %w", vLog.BlockNumber, err)
 			}
@@ -1655,7 +1659,7 @@ func (etherMan *Client) forceSequencedBatchesEvent(ctx context.Context, vLog typ
 			return fmt.Errorf("error: tx is still pending. TxHash: %s", tx.Hash)
 		}
 
-		fullBlock, err := etherMan.TronBlockByHash(vLog.BlockHash)
+		fullBlock, _, err := etherMan.TronBlockByHash(vLog.BlockHash)
 		if err != nil {
 			return fmt.Errorf("error getting hashParent. BlockNumber: %d. Error: %w", vLog.BlockNumber, err)
 		}
@@ -1761,7 +1765,7 @@ func hash(data ...[32]byte) [32]byte {
 	return res
 }
 
-func TronHeader2EthHeader(tronHeader *TronHeader) (*types.Header, error) {
+func TronHeader2EthHeader(tronHeader *TronHeader) (*types.Header, common.Hash, error) {
 	var ethHeader types.Header
 
 	ethHeader.ParentHash = tronHeader.ParentHash
@@ -1780,7 +1784,7 @@ func TronHeader2EthHeader(tronHeader *TronHeader) (*types.Header, error) {
 	}
 	difficulty, ok := new(big.Int).SetString(str, base)
 	if !ok {
-		return nil, fmt.Errorf("could not parse tronHeader.Difficulty")
+		return nil, common.Hash{}, fmt.Errorf("could not parse tronHeader.Difficulty")
 	}
 	ethHeader.Difficulty = difficulty
 
@@ -1792,7 +1796,7 @@ func TronHeader2EthHeader(tronHeader *TronHeader) (*types.Header, error) {
 	}
 	number, ok := new(big.Int).SetString(str, base)
 	if !ok {
-		return nil, fmt.Errorf("could not parse tronHeader.number")
+		return nil, common.Hash{}, fmt.Errorf("could not parse tronHeader.number")
 	}
 	ethHeader.Number = number
 
@@ -1805,7 +1809,7 @@ func TronHeader2EthHeader(tronHeader *TronHeader) (*types.Header, error) {
 
 	gasLimit, err := strconv.ParseUint(str, base, 0)
 	if err != nil {
-		return nil, fmt.Errorf("could not parse tronHeader.GasLimit, err:", err)
+		return nil, common.Hash{}, fmt.Errorf("could not parse tronHeader.GasLimit, err:", err)
 	}
 	ethHeader.GasLimit = gasLimit
 
@@ -1817,7 +1821,7 @@ func TronHeader2EthHeader(tronHeader *TronHeader) (*types.Header, error) {
 	}
 	gasUsed, err := strconv.ParseUint(str, base, 0)
 	if err != nil {
-		return nil, fmt.Errorf("could not parse tronHeader.GasUsed, err:", err)
+		return nil, common.Hash{}, fmt.Errorf("could not parse tronHeader.GasUsed, err:", err)
 	}
 	ethHeader.GasUsed = gasUsed
 
@@ -1829,14 +1833,14 @@ func TronHeader2EthHeader(tronHeader *TronHeader) (*types.Header, error) {
 	}
 	time, err := strconv.ParseUint(str, 16, 0)
 	if err != nil {
-		return nil, fmt.Errorf("could not parse tronHeader.Time, err:", err)
+		return nil, common.Hash{}, fmt.Errorf("could not parse tronHeader.Time, err:", err)
 	}
 	ethHeader.Time = time
 
 	str = strings.TrimPrefix(tronHeader.Extra, "0x")
 	extra, err := hex.DecodeString(str)
 	if err != nil {
-		return nil, fmt.Errorf("could not parse tronHeader.Extra, err:", err)
+		return nil, common.Hash{}, fmt.Errorf("could not parse tronHeader.Extra, err:", err)
 	}
 	ethHeader.Extra = extra
 	ethHeader.MixDigest = tronHeader.MixDigest
@@ -1850,13 +1854,13 @@ func TronHeader2EthHeader(tronHeader *TronHeader) (*types.Header, error) {
 	}
 	baseFee, ok := new(big.Int).SetString(str, base)
 	if !ok {
-		return nil, fmt.Errorf("could not parse tronHeader.BaseFee")
+		return nil, common.Hash{}, fmt.Errorf("could not parse tronHeader.BaseFee")
 	}
 	ethHeader.BaseFee = baseFee
 
 	ethHeader.WithdrawalsHash = tronHeader.WithdrawalsHash
 
-	return &ethHeader, nil
+	return &ethHeader, tronHeader.Hash, nil
 }
 
 func toBlockNumArg(number *big.Int) string {
@@ -1880,7 +1884,7 @@ func toBlockNumArg(number *big.Int) string {
 
 // TronHeaderByNumber returns a block header from the current canonical chain. If number is
 // nil, the latest known header is returned.
-func (etherMan *Client) TronHeaderByNumber(number *big.Int) (*types.Header, error) {
+func (etherMan *Client) TronHeaderByNumber(number *big.Int) (*types.Header, common.Hash, error) {
 	var params = []string{toBlockNumArg(number)}
 	params = append(params, "false") //If true it returns the full transaction objects, if false only the hashes of the transactions.
 	queryFilter := tron.FilterOtherParams{
@@ -1891,12 +1895,12 @@ func (etherMan *Client) TronHeaderByNumber(number *big.Int) (*types.Header, erro
 	raw, err := QueryTronInfo(etherMan.cfg.TronGrid.Url, etherMan.cfg.TronGrid.ApiKey, queryFilter)
 	fmt.Println(string(raw)) //TODO. ZYD. DEBUG
 	if err != nil {
-		return nil, err
+		return nil, common.Hash{}, err
 	}
 
 	var tronHeaderResp FilterTronHeaderResponse
 	if err := json.Unmarshal(raw, &tronHeaderResp); err != nil {
-		return nil, err
+		return nil, common.Hash{}, err
 	}
 	tronHeader := tronHeaderResp.Result
 	return TronHeader2EthHeader(&tronHeader)
@@ -1904,37 +1908,38 @@ func (etherMan *Client) TronHeaderByNumber(number *big.Int) (*types.Header, erro
 
 // HeaderByNumber returns a block header from the current canonical chain. If number is
 // nil, the latest known header is returned.
-func (etherMan *Client) HeaderByNumber(ctx context.Context, number *big.Int) (*types.Header, error) {
+func (etherMan *Client) HeaderByNumber(ctx context.Context, number *big.Int) (*types.Header, common.Hash, error) {
 	switch etherMan.cfg.L1ChainType {
 	case "Eth":
-		return etherMan.EthClient.HeaderByNumber(ctx, number)
+		ethHeader, err := etherMan.EthClient.HeaderByNumber(ctx, number)
+		return ethHeader, ethHeader.Hash(), err
 	case "Tron":
 		return etherMan.TronHeaderByNumber(number)
 	}
-	return nil, errors.New("L1ChainType should be 'Tron' or 'Eth'")
+	return nil, common.Hash{}, errors.New("L1ChainType should be 'Tron' or 'Eth'")
 }
 
-func parseTronBlock(raw []byte) (*types.Block, error) {
+func parseTronBlock(raw []byte) (*types.Block, common.Hash, error) {
 	// Decode header and transactions.
 	var head *types.Header
 	var body rpcBlock
 	var tronHeaderResp FilterTronHeaderResponse
 	if err := json.Unmarshal(raw, &tronHeaderResp); err != nil {
 		fmt.Println("ZYD parseTronBlock 1111")
-		return nil, err
+		return nil, common.Hash{}, err
 	}
 	tronHeader := tronHeaderResp.Result
-	head, err := TronHeader2EthHeader(&tronHeader)
+	head, blockHash, err := TronHeader2EthHeader(&tronHeader)
 	if err != nil {
 		fmt.Println("ZYD parseTronBlock 2222")
-		return nil, err
+		return nil, common.Hash{}, err
 	}
 
 	fmt.Println("parseTronBlock raw:", string(raw))
 	var tronBlockResp FilterBlockResponse
 	if err := json.Unmarshal(raw, &tronBlockResp); err != nil {
 		fmt.Println("ZYD parseTronBlock 3333")
-		return nil, err
+		return nil, common.Hash{}, err
 	}
 	//body = tronBlockResp.Result.rpcBlock
 	/*// Quick-verify transaction and uncle lists. This mostly helps with debugging the server.
@@ -1960,7 +1965,8 @@ func parseTronBlock(raw []byte) (*types.Block, error) {
 	}*/ // TODO, ZYD
 
 	fmt.Println("ZYD parseTronBlock 4444")
-	return types.NewBlockWithHeader(head).WithBody(txs, uncles), nil
+	ethBlock := types.NewBlockWithHeader(head).WithBody(txs, uncles)
+	return ethBlock, blockHash, nil
 }
 
 // TronBlockByNumber returns a block from the current canonical chain. If number is nil, the
@@ -1968,7 +1974,7 @@ func parseTronBlock(raw []byte) (*types.Block, error) {
 //
 // Note that loading full blocks requires two requests. Use HeaderByNumber
 // if you don't need all transactions or uncle headers.
-func (etherMan *Client) TronBlockByNumber(number *big.Int) (*types.Block, error) {
+func (etherMan *Client) TronBlockByNumber(number *big.Int) (*types.Block, common.Hash, error) {
 	var params = []string{toBlockNumArg(number)}
 	params = append(params, "true") //If true it returns the full transaction objects, if false only the hashes of the transactions.
 	queryFilter := tron.FilterOtherParams{
@@ -1979,35 +1985,28 @@ func (etherMan *Client) TronBlockByNumber(number *big.Int) (*types.Block, error)
 	raw, err := QueryTronInfo(etherMan.cfg.TronGrid.Url, etherMan.cfg.TronGrid.ApiKey, queryFilter)
 	fmt.Println(string(raw))
 	if err != nil {
-		return nil, err
+		return nil, common.Hash{}, err
 	}
 
 	return parseTronBlock(raw)
 }
 
 // EthBlockByNumber function retrieves the ethereum block information by ethereum block number.
-func (etherMan *Client) EthBlockByNumber(ctx context.Context, blockNumber uint64) (*types.Block, error) {
+func (etherMan *Client) EthBlockByNumber(ctx context.Context, blockNumber uint64) (*types.Block, common.Hash, error) {
 	switch etherMan.cfg.L1ChainType {
 	case "Eth":
-		block, err := etherMan.EthClient.BlockByNumber(ctx, new(big.Int).SetUint64(blockNumber))
+		ethBlock, err := etherMan.EthClient.BlockByNumber(ctx, new(big.Int).SetUint64(blockNumber))
 		if err != nil {
 			if errors.Is(err, ethereum.NotFound) || err.Error() == "block does not exist in blockchain" {
-				return nil, ErrNotFound
+				return nil, common.Hash{}, ErrNotFound
 			}
-			return nil, err
+			return nil, common.Hash{}, err
 		}
-		return block, nil
+		return ethBlock, ethBlock.Hash(), nil
 	case "Tron":
-		block, err := etherMan.TronBlockByNumber(new(big.Int).SetUint64(blockNumber))
-		if err != nil {
-			if errors.Is(err, ethereum.NotFound) || err.Error() == "block does not exist in blockchain" {
-				return nil, ErrNotFound
-			}
-			return nil, err
-		}
-		return block, nil
+		return etherMan.TronBlockByNumber(new(big.Int).SetUint64(blockNumber))
 	}
-	return nil, errors.New("L1ChainType should be 'Tron' or 'Eth'")
+	return nil, common.Hash{}, errors.New("L1ChainType should be 'Tron' or 'Eth'")
 }
 
 // TronLastTimestamp is a free data retrieval call binding the contract method 0x19d8ac61.
@@ -2099,7 +2098,7 @@ func (etherMan *Client) GetLatestBlockNumber(ctx context.Context) (uint64, error
 		}
 		return header.Number.Uint64(), nil
 	case "Tron":
-		header, err := etherMan.TronHeaderByNumber(nil)
+		header, _, err := etherMan.TronHeaderByNumber(nil)
 		if err != nil || header == nil {
 			return 0, err
 		}
