@@ -28,9 +28,9 @@ FreeClaimGasLimit = 1500000
 
 [Etherman]
 URL = "grpc.nile.trongrid.io:50051" # Tron as L1
-PoEAddr = "0x2808842B4C7570FA8F2567F4B3FAA6D33E14E598" # TDctETHum6mnDdAXhwkxfZaFPL3no58iXb
+PoEAddr = "0x09E21E66B4C269B5711284C1D061B15BB6447CF2" # TAsTxntUVHK6QjxpyaxeKec9eiGhXYwLaz
 MaticAddr = "0xF28846C1A27FFB9E3EF36BEAB1EC02597C54AE2D" # TY5bn8bEZt6nSBRA2c4CyJsKQ2PirGZ3Bn
-GlobalExitRootManagerAddr = "0x868972948DB64BA23BD61FC6CF9339AF13D3AE48" # TNEaCnk9YgyGwTqcx254bkK4zu6FowALH5
+GlobalExitRootManagerAddr = "0xDC985B5DFF275E8B3FDD4EE857358FA76A1D7E38" # TW5cBCqXidmotAKyzn4HVYJudsdbAXy6v6
 L1ChainID = 1001 # Tron chainID
 L1ChainType = "Tron" # Tron or Eth
 TronFeeLimit = 200000000 # Tron tx FeeLimit
@@ -57,7 +57,7 @@ DefaultSenderAddress = "0x1111111111111111111111111111111111111111"
 [Synchronizer]
 SyncInterval = "1s"
 SyncChunkSize = 100
-GenBlockNumber = 34987471 # deploymentBlockNumber，sync start block
+GenBlockNumber = 35017676 # deploymentBlockNumber，sync start block
 
 [Sequencer]
 MaxSequenceSize = "2000000"

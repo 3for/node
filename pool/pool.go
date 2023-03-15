@@ -102,7 +102,7 @@ func (p *Pool) PreExecuteTx(ctx context.Context, tx types.Transaction) (state.ZK
 		return state.ZKCounters{}, err
 	}
 
-	if nonce == 0 { // for genesis account
+	if nonce == 0 { // for genesis account to get Nonce. ZYD. TODO. Need delete!
 		nonce, err = p.state.GetNonce(ctx, sender, 0, nil)
 		if err != nil {
 			return state.ZKCounters{}, err
