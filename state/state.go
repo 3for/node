@@ -1221,9 +1221,9 @@ func (s *State) internalProcessUnsignedTransaction(ctx context.Context, tx *type
 
 	// Create Batch
 	processBatchRequest := &pb.ProcessBatchRequest{
-		OldBatchNum:      lastBatch.BatchNumber,
-		BatchL2Data:      batchL2Data,
-		From:             senderAddress.String(),
+		OldBatchNum: lastBatch.BatchNumber,
+		BatchL2Data: batchL2Data,
+		//From:             senderAddress.String(),
 		OldStateRoot:     l2BlockStateRoot.Bytes(),
 		GlobalExitRoot:   lastBatch.GlobalExitRoot.Bytes(),
 		OldAccInputHash:  previousBatch.AccInputHash.Bytes(),
