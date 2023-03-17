@@ -268,9 +268,9 @@ func (s *State) EstimateGas(transaction *types.Transaction, senderAddress common
 
 		// Create a batch to be sent to the executor
 		processBatchRequest := &pb.ProcessBatchRequest{
-			OldBatchNum:      lastBatch.BatchNumber,
-			BatchL2Data:      batchL2Data,
-			From:             senderAddress.String(),
+			OldBatchNum: lastBatch.BatchNumber,
+			BatchL2Data: batchL2Data,
+			//From:             senderAddress.String(), //delete, or processBatch no rpc response
 			OldStateRoot:     l2BlockStateRoot.Bytes(),
 			GlobalExitRoot:   lastBatch.GlobalExitRoot.Bytes(),
 			OldAccInputHash:  previousBatch.AccInputHash.Bytes(),
@@ -1223,7 +1223,7 @@ func (s *State) internalProcessUnsignedTransaction(ctx context.Context, tx *type
 	processBatchRequest := &pb.ProcessBatchRequest{
 		OldBatchNum: lastBatch.BatchNumber,
 		BatchL2Data: batchL2Data,
-		//From:             senderAddress.String(),
+		//From:             senderAddress.String(), //delete, or processBatch no rpc response
 		OldStateRoot:     l2BlockStateRoot.Bytes(),
 		GlobalExitRoot:   lastBatch.GlobalExitRoot.Bytes(),
 		OldAccInputHash:  previousBatch.AccInputHash.Bytes(),
